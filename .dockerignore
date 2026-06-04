@@ -1,0 +1,48 @@
+# 빌드 컨텍스트에서 제외 — 이미지 크기 / 빌드 캐시 최적화
+.git
+.github
+.gitignore
+.vscode
+.idea
+.DS_Store
+*.swp
+
+# Python
+__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Virtual envs
+.venv
+venv
+
+# Env / secrets — .env는 컨테이너에 env_file로 주입, 이미지에는 포함 금지
+.env
+.env.local
+keys
+
+# 에이전트 산출물
+_workspace
+.claude
+
+# 문서/메타
+AGENTS.md
+CLAUDE.md
+README.md
+LICENSE
+*.md
+!app/**/*.md
+
+# 빌드 산출물
+build
+dist
+
+# 로컬 임시
+/tmp
+*.tmp

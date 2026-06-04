@@ -1,0 +1,62 @@
+# =============================================================================
+# Hola Climbing AI Worker — docker-compose (로컬 개발/통합 테스트 전용)
+# 운영은 Cloud Run / GKE / EC2 등 외부 오케스트레이터에서 Dockerfile만 사용.
+# Spring 서버(hola-climbing-server)와 같은 redis 컨테이너를 공유하는 형태가 일반적.
+# =============================================================================
+
+services:
+  # Spring과 공유하는 Redis. Spring docker-compose의 redis와 같은 인스턴스를 가리키도록
+  # 운영 환경에서는 external network로 묶거나 호스트 Redis를 사용한다.
+  redis:
+    image: redis:7-alpine
+    container_name: hola-ai-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-changeme}", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - hola_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hola-climbing-ai:latest
+    container_name: hola-ai-worker
+    # Apple Silicon에서도 MediaPipe wheel(amd64)을 위해 Rosetta로 실행
+    platform: linux/amd64
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # compose 내부 통신은 서비스명으로 — .env의 REDIS_HOST는 무시되도록 override
+      REDIS_HOST: redis
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "${WORKER_PORT:-8000}:8000"
+    volumes:
+      # 로컬 gcloud ADC 마운트 (옵션 A: 별도 SA 키 없이 사용자 ADC 사용)
+      # 사용 안 할 경우 GOOGLE_APPLICATION_CREDENTIALS로 ./keys/gcs-sa.json 지정.
+      - "${HOME}/.config/gcloud:/home/appuser/.config/gcloud:ro"
+      # 별도 SA 키 파일 마운트 (옵션 B: keys/ 폴더에 sa.json 배치)
+      - ./keys:/app/keys:ro
+      # 영상 다운로드 작업 디렉토리 (대용량 영상에 대비)
+      - worker_tmp:/tmp/hola-videos
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  hola_redis_data:
+  worker_tmp:

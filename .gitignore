@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual envs / uv
+.venv/
+venv/
+.python-version
+
+# Env / secrets
+.env
+.env.local
+keys/
+*.json.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# uv lock — 운영에선 lock 커밋 권장. 본 워커는 커밋 함 (uv.lock는 미제외)
+
+# Workspace (에이전트 산출물)
+_workspace/
+
+# Temp
+/tmp/
+*.tmp
+
+# OS
+.DS_Store
