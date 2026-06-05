@@ -42,6 +42,7 @@ from app.infra.redis_bus import (
     ensure_consumer_group,
     xack,
     xadd_dead_letter,
+    xautoclaim_pending,
     xreadgroup,
 )
 from app.models.stream import StreamRequest
@@ -107,7 +108,7 @@ async def _handle_one(
         )
         await xack(stream_key, group, msg_id)
     except asyncio.CancelledError:
-        # 진행 중 cancel — ack 보류. 재시작 시 PEL로 재처리 가능 (MVP는 자동 회수 미구현).
+        # 진행 중 cancel — ack 보류. 재시작 후 idle 시간이 지나면 XAUTOCLAIM으로 회수한다.
         logger.info("process_job cancelled mid-flight", extra={"msg_id": msg_id})
         raise
     except Exception as exc:
@@ -149,16 +150,26 @@ async def run_consumer(settings: Settings) -> None:
     try:
         while True:
             try:
-                # XREADGROUP은 자체적으로 ValidationError를 raise할 수 있음 — 그 경우 msg_id를
-                # 알 수 없어 dead-letter가 어렵다. 따라서 try/except로 감싸 raw 파싱 실패는
-                # 로깅만 하고 다음 루프로 (Spring 측 페이로드 형식 보증에 의존).
-                msgs = await xreadgroup(
+                msgs = await xautoclaim_pending(
                     stream_key=stream_key,
                     group=group,
                     consumer=consumer,
-                    block_ms=settings.redis_block_ms,
+                    min_idle_ms=settings.redis_pending_min_idle_ms,
                     count=1,
                 )
+                if msgs:
+                    logger.info(
+                        "claimed stale pending message",
+                        extra={"stream": stream_key, "group": group, "consumer": consumer},
+                    )
+                else:
+                    msgs = await xreadgroup(
+                        stream_key=stream_key,
+                        group=group,
+                        consumer=consumer,
+                        block_ms=settings.redis_block_ms,
+                        count=1,
+                    )
             except ValidationError as ve:
                 # 메시지가 있었지만 파싱 실패 — msg_id를 못 얻음. 로그만 남기고 계속.
                 # (XREADGROUP는 이미 메시지를 PEL에 등록했으므로 다음 루프에서는 다른 메시지가 옴)

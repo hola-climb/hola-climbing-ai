@@ -8,6 +8,8 @@ Spring `RedisStreamAnalysisJobQueue.java`가 XADD하는 raw payload는 **camelCa
 
 from __future__ import annotations
 
+from typing import SupportsInt
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
 
@@ -31,7 +33,10 @@ class StreamRequest(BaseModel):
         """XREADGROUP은 bytes를 반환한다 — bytes/str 모두 int로 변환."""
         if isinstance(v, (bytes, bytearray)):
             v = v.decode()
-        return int(v)  # type: ignore[arg-type]
+        if isinstance(v, (str, SupportsInt)):
+            return int(v)
+        msg = f"videoId must be int-like, got {type(v).__name__}"
+        raise TypeError(msg)
 
     @field_validator("gcs_path", "callback_url", mode="before")
     @classmethod

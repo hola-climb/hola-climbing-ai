@@ -13,7 +13,7 @@ Spring 필드:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -30,7 +30,7 @@ class ApiResponse(BaseModel, Generic[T]):
     code: str = "OK"
     message: str | None = None
     data: T | None = None
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
     def ok(cls, data: T | None = None) -> ApiResponse[T]:
@@ -38,4 +38,4 @@ class ApiResponse(BaseModel, Generic[T]):
 
     @classmethod
     def error(cls, code: str, message: str) -> ApiResponse[None]:
-        return cls(is_success=False, code=code, message=message, data=None)
+        return ApiResponse[None](is_success=False, code=code, message=message, data=None)

@@ -117,7 +117,7 @@ def predict_video(video_path: Path, target_fps: int, dynamic_threshold: float) -
         poses = extract_pose_landmarks(frames)
         segs = split_segments(poses)
         payloads = classify_segments(poses, segs)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return "unknown", {"error": repr(exc)}
 
     if not payloads:
@@ -139,7 +139,7 @@ def predict_video(video_path: Path, target_fps: int, dynamic_threshold: float) -
 
 def score(y_true: list[str], y_pred: list[str]) -> dict:
     n = len(y_true)
-    correct = sum(1 for t, p in zip(y_true, y_pred) if t == p)
+    correct = sum(1 for t, p in zip(y_true, y_pred, strict=True) if t == p)
     acc = correct / n if n else 0.0
     out: dict = {"n": n, "accuracy": round(acc, 4)}
     if _HAS_SKLEARN and n > 0:
@@ -153,7 +153,7 @@ def score(y_true: list[str], y_pred: list[str]) -> dict:
         # fallback: 수동 confusion matrix
         cm = {("dynamic", "dynamic"): 0, ("dynamic", "static"): 0,
               ("static", "dynamic"): 0, ("static", "static"): 0}
-        for t, p in zip(y_true, y_pred):
+        for t, p in zip(y_true, y_pred, strict=True):
             if (t, p) in cm:
                 cm[(t, p)] += 1
         out["confusion_matrix"] = cm
@@ -187,8 +187,8 @@ def main() -> int:
 
     if not args.videos:
         print("\n[dry-run] --videos 미지정. 라벨 분포만 출력:")
-        print(f"  dynamic: {sum(1 for _, l in labeled if l == 'dynamic')}")
-        print(f"  static : {sum(1 for _, l in labeled if l == 'static')}")
+        print(f"  dynamic: {sum(1 for _, label in labeled if label == 'dynamic')}")
+        print(f"  static : {sum(1 for _, label in labeled if label == 'static')}")
         return 0
 
     if not args.videos.exists():

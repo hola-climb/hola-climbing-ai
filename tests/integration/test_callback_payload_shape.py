@@ -16,7 +16,6 @@ import httpx  # noqa: E402
 from app.models.callback import AnalysisIngestRequest, AnalysisSegmentPayload  # noqa: E402
 from app.services.callback.client import post_callback  # noqa: E402
 
-
 URL = "http://test-spring/api/analysis/videos/42"
 
 # Spring AnalysisIngestRequest record 필드 (Jackson SNAKE_CASE 변환 후)

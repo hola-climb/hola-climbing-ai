@@ -15,17 +15,19 @@ timestamp_ms:
 from __future__ import annotations
 
 import logging
-from typing import Iterator
+from collections.abc import Iterator
+from typing import cast
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 from app.core.errors import AnalysisException, AnalysisFailureReason
 
 logger = logging.getLogger(__name__)
 
 
-def iter_frames(video_path: str, target_fps: int = 15) -> Iterator[tuple[int, int, np.ndarray]]:
+def iter_frames(video_path: str, target_fps: int = 15) -> Iterator[tuple[int, int, NDArray[np.uint8]]]:
     """비디오 파일에서 프레임을 (frame_idx, timestamp_ms, BGR ndarray)로 yield한다.
 
     Args:
@@ -84,7 +86,7 @@ def iter_frames(video_path: str, target_fps: int = 15) -> Iterator[tuple[int, in
             first_read_ok = True
             if idx % step == 0:
                 ts_ms = int(idx * ms_per_frame) if ms_per_frame > 0 else 0
-                yield idx, ts_ms, frame
+                yield idx, ts_ms, cast(NDArray[np.uint8], frame)
                 yielded += 1
             idx += 1
 

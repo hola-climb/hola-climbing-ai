@@ -23,12 +23,11 @@ from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
+from numpy.typing import NDArray
 
 from app.models.callback import AnalysisSegmentPayload
 from app.services.vision._landmarks import (
-    FOOT_IDX,
     HAND_IDX,
-    HIP_IDX,
     LEFT_ANKLE,
     LEFT_ELBOW,
     LEFT_FOOT_INDEX,
@@ -107,7 +106,7 @@ class _Score:
 
 def _slice_arr_by_time(
     pose_frames: list[PoseFrame], start_ms: int, end_ms: int
-) -> np.ndarray | None:
+) -> NDArray[np.float32] | None:
     """[start_ms, end_ms] 범위의 landmark array (T, 33, 4). 부족하면 None."""
     selected = [pf for pf in pose_frames if start_ms <= pf.timestamp_ms <= end_ms]
     if len(selected) < 3:
@@ -121,7 +120,7 @@ def _ratio(numer: float, denom: float) -> float:
     return float(min(1.0, max(0.0, numer / denom)))
 
 
-def _score_high_step(arr: np.ndarray) -> _Score:
+def _score_high_step(arr: NDArray[np.float32]) -> _Score:
     """발목 y가 골반 y보다 위(=y 더 작음)인 프레임 비율 + 손 정적성."""
     hip_y = midpoint(arr, LEFT_HIP, RIGHT_HIP)[:, 1]
     l_ankle_y = arr[:, LEFT_ANKLE, 1]
@@ -138,7 +137,7 @@ def _score_high_step(arr: np.ndarray) -> _Score:
     return _Score("high_step", matched, conf)
 
 
-def _score_flagging(arr: np.ndarray) -> _Score:
+def _score_flagging(arr: NDArray[np.float32]) -> _Score:
     """지지 발 기준 반대쪽 다리가 반대 방향으로 외측 확장 + 무게중심 외측 이동."""
     support_idx = support_foot_index(arr)  # ankle index
     opp_idx = opposite_ankle(support_idx)
@@ -164,7 +163,7 @@ def _score_flagging(arr: np.ndarray) -> _Score:
     return _Score("flagging", matched, conf)
 
 
-def _score_hook(arr: np.ndarray, *, is_toe: bool) -> _Score:
+def _score_hook(arr: NDArray[np.float32], *, is_toe: bool) -> _Score:
     """toe/heel hook 공통: 발이 무릎보다 위인 프레임 비율 + foot_index vs heel 상대 위치."""
     # 양쪽 발 중 더 위에 있는 발을 hook 후보로
     l_foot_y = arr[:, LEFT_ANKLE, 1]
@@ -198,7 +197,7 @@ def _score_hook(arr: np.ndarray, *, is_toe: bool) -> _Score:
     return _Score(label, matched, conf)
 
 
-def _score_lock_off(arr: np.ndarray) -> _Score:
+def _score_lock_off(arr: NDArray[np.float32]) -> _Score:
     """양 팔꿈치 굽힘 변동성 작음 + 골반 y 안정 + 손 정적 + 최소 한 팔이 충분히 굽혀짐."""
     l_elbow = joint_angle_deg(arr, LEFT_SHOULDER, LEFT_ELBOW, LEFT_WRIST)
     r_elbow = joint_angle_deg(arr, RIGHT_SHOULDER, RIGHT_ELBOW, RIGHT_WRIST)
@@ -227,7 +226,7 @@ def _score_lock_off(arr: np.ndarray) -> _Score:
     return _Score("lock_off", matched, max(0.0, min(1.0, conf)))
 
 
-def _score_dyno(arr: np.ndarray, durations_ms: np.ndarray) -> _Score:
+def _score_dyno(arr: NDArray[np.float32], durations_ms: NDArray[np.int64]) -> _Score:
     """골반 y 속도의 정점 큰 값 + 양손이 동시에 hold 이탈한 프레임 존재."""
     if arr.shape[0] < 3:
         return _Score("dyno", False, 0.0)
@@ -250,7 +249,7 @@ def _score_dyno(arr: np.ndarray, durations_ms: np.ndarray) -> _Score:
 
 
 def _score_coordination(
-    arr: np.ndarray, timestamps_ms: np.ndarray
+    arr: NDArray[np.float32], timestamps_ms: NDArray[np.int64]
 ) -> _Score:
     """짧은 시간 window 내에 4 limb 중 3개 이상이 동시에 이동."""
     if arr.shape[0] < 3:
@@ -265,10 +264,10 @@ def _score_coordination(
     frame_ms = float(np.median(ts_diff)) if ts_diff.size > 0 else 33.0
     window_frames = max(1, int(COORDINATION_WINDOW_MS / max(1.0, frame_ms)))
 
-    T = moving.shape[1]
+    frame_count = moving.shape[1]
     max_simul = 0
-    for start in range(0, max(1, T - window_frames + 1)):
-        end = min(T, start + window_frames)
+    for start in range(0, max(1, frame_count - window_frames + 1)):
+        end = min(frame_count, start + window_frames)
         win = moving[:, start:end]
         # 이 윈도우 안에서 limb별로 한 번이라도 움직였는가
         any_moved = win.any(axis=1)  # (4,)

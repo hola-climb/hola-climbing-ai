@@ -16,7 +16,6 @@ classifier가 합성한 "이상적" pose 시퀀스에 대해 합리적인 결정
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from app.models.callback import AnalysisSegmentPayload
 from app.services.vision.classifier import (

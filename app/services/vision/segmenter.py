@@ -14,7 +14,10 @@ vision-engineer 구현 영역.
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
+from numpy.typing import NDArray
 
 from app.services.vision._landmarks import (
     FOOT_IDX,
@@ -33,7 +36,7 @@ from app.services.vision._thresholds import (
 from app.services.vision.pose import PoseFrame
 
 
-def _detect_quiet_boundaries(arr: np.ndarray) -> list[int]:
+def _detect_quiet_boundaries(arr: NDArray[np.float32]) -> list[int]:
     """손+발 평균 속도 기준 정지 구간 중앙 프레임 인덱스 반환."""
     limb_idx = HAND_IDX + FOOT_IDX
     # mean velocity time series (T-1,)
@@ -56,7 +59,7 @@ def _detect_quiet_boundaries(arr: np.ndarray) -> list[int]:
     return boundaries
 
 
-def _detect_pelvis_extrema(arr: np.ndarray) -> list[int]:
+def _detect_pelvis_extrema(arr: NDArray[np.float32]) -> list[int]:
     """골반 y의 prominence 정점/저점 프레임 인덱스 반환 (다이노/락오프 후보 경계).
 
     SciPy 의존을 피하기 위해 단순 1차 미분 부호 변화 + prominence 체크로 처리.
@@ -88,13 +91,13 @@ def _detect_pelvis_extrema(arr: np.ndarray) -> list[int]:
 
 
 def _merge_and_clean(
-    boundaries: list[int], total_frames: int, timestamps_ms: np.ndarray
+    boundaries: list[int], total_frames: int, timestamps_ms: NDArray[np.int64]
 ) -> list[tuple[int, int]]:
     """경계 인덱스 → (start_ms, end_ms) 구간으로 변환, 짧은 구간 흡수 + 긴 구간 분할."""
     # boundary 정렬·중복 제거, 양 끝 포함
     bset = sorted({0, *boundaries, total_frames - 1})
     raw_segments: list[tuple[int, int]] = []
-    for a, b in zip(bset[:-1], bset[1:]):
+    for a, b in pairwise(bset):
         if b <= a:
             continue
         raw_segments.append((int(timestamps_ms[a]), int(timestamps_ms[b])))

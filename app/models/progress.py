@@ -8,13 +8,13 @@ Jackson SNAKE_CASE로 직렬화되므로 본 모델의 필드명은 snake_case �
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class AnalysisStage(str, Enum):
+class AnalysisStage(StrEnum):
     """Spring `AnalysisStage` enum. 대문자 문자열로 직렬화."""
 
     QUEUED = "QUEUED"
@@ -31,4 +31,4 @@ class ProgressEvent(BaseModel):
     video_id: int
     stage: AnalysisStage
     message: str
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

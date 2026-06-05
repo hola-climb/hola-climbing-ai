@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -20,7 +20,6 @@ from app.models.callback import AnalysisIngestRequest, AnalysisSegmentPayload
 from app.models.progress import AnalysisStage, ProgressEvent
 from app.models.response import ApiResponse
 from app.models.stream import StreamRequest
-
 
 # ---------------------------------------------------------------------------
 # StreamRequest — Redis Stream 입력 (camelCase)
@@ -225,7 +224,7 @@ class TestProgressEvent:
             video_id=1,
             stage=AnalysisStage.PROCESSING,
             message="x",
-            updated_at=datetime(2026, 5, 28, 10, 32, 45, 123000, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 5, 28, 10, 32, 45, 123000, tzinfo=UTC),
         )
         payload = event.model_dump(mode="json")
         ts = payload["updated_at"]

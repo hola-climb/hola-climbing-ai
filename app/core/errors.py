@@ -7,11 +7,11 @@ Spring 서버(hola-climbing-server)의 `ErrorCode` enum과 호환되는 상수�
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Final
 
 
-class AnalysisFailureReason(str, Enum):
+class AnalysisFailureReason(StrEnum):
     """Worker-internal failure reason. 콜백 body에 들어가지 않는다."""
 
     VIDEO_DOWNLOAD = "video_download"
@@ -21,7 +21,7 @@ class AnalysisFailureReason(str, Enum):
     INTERNAL = "internal"
 
 
-class AnalysisException(Exception):
+class AnalysisException(Exception):  # noqa: N818 - existing public domain exception name
     """워커 내부 분석 실패. orchestrator가 캐치 후 status='failed' 콜백 발송."""
 
     def __init__(self, reason: AnalysisFailureReason, message: str) -> None:

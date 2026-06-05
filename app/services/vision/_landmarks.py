@@ -7,9 +7,19 @@
 
 from __future__ import annotations
 
-from typing import Final
+from collections.abc import Sequence
+from typing import Final, Protocol, cast
 
 import numpy as np
+from numpy.typing import NDArray
+
+LandmarkArray = NDArray[np.float32]
+FloatArray = NDArray[np.float64]
+
+
+class HasLandmarks(Protocol):
+    @property
+    def landmarks(self) -> LandmarkArray: ...
 
 # MediaPipe Pose 33-keypoint index (공식 문서)
 NOSE: Final[int] = 0
@@ -37,32 +47,32 @@ SHOULDER_IDX: Final[tuple[int, int]] = (LEFT_SHOULDER, RIGHT_SHOULDER)
 KNEE_IDX: Final[tuple[int, int]] = (LEFT_KNEE, RIGHT_KNEE)
 
 
-def stack_landmarks(pose_frames) -> np.ndarray:
+def stack_landmarks(pose_frames: Sequence[HasLandmarks]) -> LandmarkArray:
     """PoseFrame 리스트의 landmarks를 (T, 33, 4) array로 쌓는다."""
-    return np.stack([pf.landmarks for pf in pose_frames], axis=0)
+    return cast(LandmarkArray, np.stack([pf.landmarks for pf in pose_frames], axis=0))
 
 
-def midpoint(arr: np.ndarray, idx_a: int, idx_b: int) -> np.ndarray:
+def midpoint(arr: LandmarkArray, idx_a: int, idx_b: int) -> FloatArray:
     """(T, 33, 4)에서 두 landmark의 중점 (T, 4)를 반환."""
-    return (arr[:, idx_a, :] + arr[:, idx_b, :]) * 0.5
+    return cast(FloatArray, (arr[:, idx_a, :] + arr[:, idx_b, :]) * 0.5)
 
 
-def velocity_xy(arr: np.ndarray, idx: int) -> np.ndarray:
+def velocity_xy(arr: LandmarkArray, idx: int) -> FloatArray:
     """단일 landmark의 프레임당 xy 속도 (T-1,) 스칼라 (L2)."""
     pts = arr[:, idx, :2]
     diff = np.diff(pts, axis=0)
-    return np.linalg.norm(diff, axis=1)
+    return cast(FloatArray, np.linalg.norm(diff, axis=1))
 
 
-def mean_velocity(arr: np.ndarray, indices: tuple[int, ...]) -> np.ndarray:
+def mean_velocity(arr: LandmarkArray, indices: tuple[int, ...]) -> FloatArray:
     """여러 landmark의 평균 속도 시계열 (T-1,)."""
     vs = [velocity_xy(arr, i) for i in indices]
-    return np.mean(np.stack(vs, axis=0), axis=0)
+    return cast(FloatArray, np.mean(np.stack(vs, axis=0), axis=0))
 
 
 def joint_angle_deg(
-    arr: np.ndarray, a_idx: int, vertex_idx: int, c_idx: int
-) -> np.ndarray:
+    arr: LandmarkArray, a_idx: int, vertex_idx: int, c_idx: int
+) -> FloatArray:
     """각 vertex에서 a-vertex-c 의 각도 (도). shape (T,).
 
     팔꿈치 굽힘각: shoulder-elbow-wrist.
@@ -78,22 +88,22 @@ def joint_angle_deg(
     nc = np.linalg.norm(vc, axis=1) + 1e-8
     cos = np.einsum("ij,ij->i", va, vc) / (na * nc)
     cos = np.clip(cos, -1.0, 1.0)
-    return np.degrees(np.arccos(cos))
+    return cast(FloatArray, np.degrees(np.arccos(cos)))
 
 
-def pelvis_y(arr: np.ndarray) -> np.ndarray:
+def pelvis_y(arr: LandmarkArray) -> FloatArray:
     """골반 중점 y 시계열 (T,)."""
     return midpoint(arr, LEFT_HIP, RIGHT_HIP)[:, 1]
 
 
-def center_of_mass_x(arr: np.ndarray) -> np.ndarray:
+def center_of_mass_x(arr: LandmarkArray) -> FloatArray:
     """간이 무게중심 x = (어깨 중점 x + 골반 중점 x) / 2."""
     sh = midpoint(arr, LEFT_SHOULDER, RIGHT_SHOULDER)[:, 0]
     hp = midpoint(arr, LEFT_HIP, RIGHT_HIP)[:, 0]
-    return (sh + hp) * 0.5
+    return cast(FloatArray, (sh + hp) * 0.5)
 
 
-def support_foot_index(arr: np.ndarray) -> int:
+def support_foot_index(arr: LandmarkArray) -> int:
     """전체 segment에서 더 아래쪽(y가 큰)에 평균적으로 위치한 발 = 지지 발 추정."""
     ly = float(np.mean(arr[:, LEFT_ANKLE, 1]))
     ry = float(np.mean(arr[:, RIGHT_ANKLE, 1]))

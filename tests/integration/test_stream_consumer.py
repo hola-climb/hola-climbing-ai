@@ -14,7 +14,6 @@ fakeredis가 XREADGROUP과 PubSub을 모두 지원하지 않으면 skip.
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
 import pytest
@@ -157,7 +156,7 @@ async def test_consumer_processes_xadded_message(
         task.cancel()
         try:
             await asyncio.wait_for(task, timeout=2.0)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
+        except (TimeoutError, asyncio.CancelledError):
             pass
 
     # 4) 콜백 검증
@@ -218,7 +217,7 @@ async def test_validation_error_goes_to_dlq(
         task.cancel()
         try:
             await asyncio.wait_for(task, timeout=2.0)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
+        except (TimeoutError, asyncio.CancelledError):
             pass
 
     dlq_len = await redis_client.xlen(dlq_key)

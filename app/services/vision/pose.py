@@ -11,10 +11,13 @@ vision-engineer 구현 영역.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Final, Iterable
+from pathlib import Path
+from typing import Any, Final
 
 import numpy as np
+from numpy.typing import NDArray
 
 from app.core.errors import AnalysisException, AnalysisFailureReason
 
@@ -33,36 +36,107 @@ class PoseFrame:
 
     frame_idx: int
     timestamp_ms: int
-    landmarks: np.ndarray  # shape (33, 4), float32
+    landmarks: NDArray[np.float32]  # shape (33, 4), float32
 
 
 def _build_pose_estimator(
     model_complexity: int,
     min_detection_confidence: float,
     min_tracking_confidence: float,
-):
+    task_model_path: str | None = None,
+) -> Any:
     """MediaPipe Pose 인스턴스를 lazy import 후 생성한다.
 
     분리 이유: 테스트에서 mock 주입을 쉽게 하기 위해.
     """
-    import mediapipe as mp  # noqa: PLC0415 — lazy import 의도
+    import mediapipe as mp
 
-    return mp.solutions.pose.Pose(
-        static_image_mode=False,
-        model_complexity=model_complexity,
-        smooth_landmarks=True,
-        enable_segmentation=False,
-        min_detection_confidence=min_detection_confidence,
+    if hasattr(mp, "solutions"):
+        return _SolutionsPoseEstimator(
+            mp.solutions.pose.Pose(
+                static_image_mode=False,
+                model_complexity=model_complexity,
+                smooth_landmarks=True,
+                enable_segmentation=False,
+                min_detection_confidence=min_detection_confidence,
+                min_tracking_confidence=min_tracking_confidence,
+            )
+        )
+
+    if not task_model_path:
+        raise AnalysisException(
+            AnalysisFailureReason.INTERNAL,
+            "mediapipe tasks API requires MP_TASK_MODEL_PATH",
+        )
+    model_path = Path(task_model_path)
+    if not model_path.exists():
+        raise AnalysisException(
+            AnalysisFailureReason.INTERNAL,
+            f"mediapipe pose task model not found: {model_path}",
+        )
+    base_options = mp.tasks.BaseOptions(model_asset_path=str(model_path))
+    options = mp.tasks.vision.PoseLandmarkerOptions(
+        base_options=base_options,
+        running_mode=mp.tasks.vision.RunningMode.VIDEO,
+        num_poses=1,
+        min_pose_detection_confidence=min_detection_confidence,
+        min_pose_presence_confidence=min_detection_confidence,
         min_tracking_confidence=min_tracking_confidence,
     )
+    return _TasksPoseEstimator(mp.tasks.vision.PoseLandmarker.create_from_options(options), mp)
+
+
+class _SolutionsPoseEstimator:
+    def __init__(self, pose: Any) -> None:
+        self._pose = pose
+
+    def detect(self, rgb: NDArray[np.uint8], timestamp_ms: int) -> NDArray[np.float32] | None:
+        _ = timestamp_ms
+        res = self._pose.process(rgb)
+        if res.pose_landmarks is None:
+            return None
+        arr = np.empty((POSE_LANDMARK_COUNT, 4), dtype=np.float32)
+        for i, lm in enumerate(res.pose_landmarks.landmark):
+            arr[i, 0] = lm.x
+            arr[i, 1] = lm.y
+            arr[i, 2] = lm.z
+            arr[i, 3] = lm.visibility
+        return arr
+
+    def close(self) -> None:
+        self._pose.close()
+
+
+class _TasksPoseEstimator:
+    def __init__(self, landmarker: Any, mp_module: Any) -> None:
+        self._landmarker = landmarker
+        self._mp = mp_module
+
+    def detect(self, rgb: NDArray[np.uint8], timestamp_ms: int) -> NDArray[np.float32] | None:
+        image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
+        res = self._landmarker.detect_for_video(image, timestamp_ms)
+        if not res.pose_landmarks:
+            return None
+        landmarks = res.pose_landmarks[0]
+        arr = np.empty((POSE_LANDMARK_COUNT, 4), dtype=np.float32)
+        for i, lm in enumerate(landmarks):
+            arr[i, 0] = lm.x
+            arr[i, 1] = lm.y
+            arr[i, 2] = lm.z
+            arr[i, 3] = lm.visibility
+        return arr
+
+    def close(self) -> None:
+        self._landmarker.close()
 
 
 def extract_pose_landmarks(
-    frames: Iterable[tuple[int, int, np.ndarray]],
+    frames: Iterable[tuple[int, int, NDArray[np.uint8]]],
     *,
     model_complexity: int = 1,
     min_detection_confidence: float = 0.5,
     min_tracking_confidence: float = 0.5,
+    task_model_path: str | None = None,
 ) -> list[PoseFrame]:
     """프레임 iterator로부터 MediaPipe Pose landmark를 추출한다.
 
@@ -83,6 +157,7 @@ def extract_pose_landmarks(
         model_complexity=model_complexity,
         min_detection_confidence=min_detection_confidence,
         min_tracking_confidence=min_tracking_confidence,
+        task_model_path=task_model_path,
     )
 
     results: list[PoseFrame] = []
@@ -96,15 +171,9 @@ def extract_pose_landmarks(
             rgb = bgr[..., ::-1]
             # MediaPipe는 contiguous array 요구
             rgb = np.ascontiguousarray(rgb)
-            res = pose.process(rgb)
-            if res.pose_landmarks is None:
+            arr = pose.detect(rgb, int(timestamp_ms))
+            if arr is None:
                 continue
-            arr = np.empty((POSE_LANDMARK_COUNT, 4), dtype=np.float32)
-            for i, lm in enumerate(res.pose_landmarks.landmark):
-                arr[i, 0] = lm.x
-                arr[i, 1] = lm.y
-                arr[i, 2] = lm.z
-                arr[i, 3] = lm.visibility
             results.append(
                 PoseFrame(
                     frame_idx=int(frame_idx),
@@ -116,7 +185,7 @@ def extract_pose_landmarks(
         # MediaPipe Pose는 context manager지만 명시적 close도 안전
         try:
             pose.close()
-        except Exception:  # noqa: BLE001 — close 실패는 무시 (best-effort)
+        except Exception:
             pass
 
     if not results:

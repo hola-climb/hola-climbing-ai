@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     redis_progress_channel: str = "analysis:progress"
     redis_block_ms: int = 5000
     redis_dlq_key: str = "analysis:requests:dlq"
+    redis_pending_min_idle_ms: int = Field(default=60000, ge=1000)
 
     # --- GCS ---
     gcs_bucket: str = "hola-climbing-log-videos"
@@ -57,6 +58,7 @@ class Settings(BaseSettings):
     # --- MediaPipe ---
     mp_model_complexity: int = Field(default=1, ge=0, le=2)
     mp_min_detection_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    mp_task_model_path: str | None = "models/mediapipe/pose_landmarker_lite.task"
     frame_target_fps: int = Field(default=15, ge=1, le=60)
 
 

@@ -21,7 +21,6 @@ from typing import Any
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # 환경 변수 사전 주입 — settings 로딩 전에 적용
 # ---------------------------------------------------------------------------
@@ -105,7 +104,7 @@ def redis_backend() -> Iterator[dict[str, Any]]:
             finally:
                 container.stop()
             return
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"[conftest] testcontainers fallback to fakeredis: {exc!r}")
 
     # Fallback: fakeredis (in-process). decode_responses=False 모드로 동작.

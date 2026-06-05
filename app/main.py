@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 
@@ -57,7 +57,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await consumer_task
         except asyncio.CancelledError:
             logger.info("consumer task cancelled cleanly")
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("consumer task raised during shutdown")
         await close_redis()
 

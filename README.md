@@ -155,7 +155,7 @@ docker compose logs -f worker   # 워커 로그
 
 ```bash
 curl http://localhost:8000/health        # liveness
-curl http://localhost:8000/health/ready  # readiness (Redis/GCS) — TODO
+curl http://localhost:8000/health/ready  # readiness (Redis/GCS)
 ```
 
 ---
@@ -187,6 +187,7 @@ curl http://localhost:8000/health/ready  # readiness (Redis/GCS) — TODO
 | `REDIS_PROGRESS_CHANNEL` | `analysis:progress` | no | **Spring 확정값 — 변경 금지** |
 | `REDIS_BLOCK_MS` | `5000` | no | `XREADGROUP BLOCK` ms |
 | `REDIS_DLQ_KEY` | `analysis:requests:dlq` | no | Dead-letter 스트림 키 |
+| `REDIS_PENDING_MIN_IDLE_MS` | `60000` | no | 이 시간 이상 idle인 PEL 메시지를 `XAUTOCLAIM`으로 회수 |
 
 ### GCS
 
@@ -265,6 +266,10 @@ XGROUP CREATE analysis:requests hola-ai-worker $ MKSTREAM
 
 콜백 4xx, max retry 초과, 파싱 실패 등은 `analysis:requests:dlq` 스트림으로 이동
 후 `XACK`합니다 (PEL 누적 방지). DLQ 컨슈머는 별도 운영 도구가 처리합니다.
+
+워커는 새 메시지를 읽기 전에 `XAUTOCLAIM`으로 `REDIS_PENDING_MIN_IDLE_MS` 이상 idle인
+pending 메시지를 현재 consumer로 회수합니다. 처리 중 워커가 종료되어 ACK가 보류된 메시지는
+다음 루프/재시작 후 재처리 대상이 됩니다.
 
 ---
 
@@ -368,16 +373,136 @@ uv run uvicorn app.main:app --reload # 로컬 실행
 uv run ruff check app                # lint
 uv run ruff format app               # format
 uv run mypy app                      # type check
-uv run pytest                        # 테스트 (현재 미작성 — QA 단계에서 추가)
+uv run pytest                        # 테스트
 uv run pytest --cov=app              # 커버리지
 ```
 
+### 학습 기반 dynamic/static 분류기
+
+휴리스틱 기술 분류와 별도로, MediaPipe Pose 시퀀스를 학습하는 GRU 기반 영상 단위
+`dynamic`/`static` 2진 분류기를 만들 수 있습니다. 학습용 의존성은 `ml` 그룹에 분리되어
+있습니다.
+
+```bash
+uv sync --group ml
+
+mkdir -p models/mediapipe
+curl -L -o models/mediapipe/pose_landmarker_lite.task \
+  https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task
+
+uv run python scripts/build_pose_dataset.py \
+  --labels /Users/minjoun/Workspace/projects/Hola-Climbing/labels_완료.csv \
+  --videos /Users/minjoun/Movies/Original \
+  --out data/pose_dataset \
+  --target-frames 128
+
+uv run python scripts/train_pose_sequence.py \
+  --data data/pose_dataset \
+  --out models/pose_dynamic_static.pt \
+  --epochs 20
+```
+
+`data/pose_dataset/`와 `models/`는 학습 산출물이므로 git에 포함하지 않습니다. 현재 워커의
+기본 분석 결과는 기존 휴리스틱 파이프라인을 유지하며, 학습 모델은 평가 후 optional로 연결합니다.
+
+성능 진단과 비교 실험은 같은 cache에서 바로 실행할 수 있습니다.
+
+```bash
+uv run python scripts/train_pose_sequence.py \
+  --data data/pose_dataset \
+  --out models/pose_dynamic_static_raw_kfold.pt \
+  --epochs 20 \
+  --feature-set raw \
+  --folds 5 \
+  --min-raw-pose-frames 30 \
+  --run-name pose_dynamic_static_raw_kfold
+
+uv run python scripts/train_pose_sequence.py \
+  --data data/pose_dataset \
+  --out models/pose_dynamic_static_motion_kfold.pt \
+  --epochs 20 \
+  --feature-set motion \
+  --folds 5 \
+  --min-raw-pose-frames 30 \
+  --run-name pose_dynamic_static_motion_kfold
+```
+
+각 실행은 `models/reports/*_predictions.csv`와 `models/reports/*_metrics.json`을 생성합니다.
+
+모델 개선용 QA 리뷰 큐는 raw/motion k-fold 예측 리포트를 비교해서 생성합니다.
+
+```bash
+uv run python scripts/build_dynamic_static_review_queue.py \
+  --raw-predictions models/reports/pose_dynamic_static_raw_kfold_predictions.csv \
+  --motion-predictions models/reports/pose_dynamic_static_motion_kfold_predictions.csv \
+  --data-dir data/pose_dataset \
+  --videos-dir /Users/minjoun/Movies/Original \
+  --labels /Users/minjoun/Workspace/projects/Hola-Climbing/labels_완료.csv \
+  --out data/review/dynamic_static_review_queue.csv \
+  --known-failure IMG_8942:no_pose_detected \
+  --contact-sheets-dir data/review/contact_sheets
+```
+
+CSV의 우선순위는 `P0` 포즈 추출 실패/저프레임, `P1` raw/motion 공통 오분류,
+`P2` raw 고확신 오분류, `P4` 정상 샘플입니다. 사람이 확인한 뒤에는
+`suggested_status`, `new_label`, `reason`, `notes`를 채우고 라벨을 정리한 다음 dataset을
+다시 빌드해 재학습합니다.
+
+완료된 QA CSV는 `_complete` 파일로 저장한 뒤 라벨 CSV와 pose cache에 반영합니다.
+
+```bash
+uv run python scripts/apply_dynamic_static_review.py \
+  --labels /Users/minjoun/Workspace/projects/Hola-Climbing/labels_완료.csv \
+  --review data/review/dynamic_static_review_queue_complete.csv \
+  --labels-out data/review/labels_완료_qa.csv \
+  --cache-in data/pose_dataset \
+  --cache-out data/pose_dataset_reviewed
+
+uv run python scripts/train_pose_sequence.py \
+  --data data/pose_dataset_reviewed \
+  --out models/pose_dynamic_static_raw_qa_kfold.pt \
+  --epochs 20 \
+  --feature-set raw \
+  --folds 5 \
+  --min-raw-pose-frames 30 \
+  --run-name pose_dynamic_static_raw_qa_kfold
+```
+
+Pose GRU와 별도로 tabular pose, optical flow, fusion baseline도 비교할 수 있습니다.
+
+```bash
+uv run python scripts/build_pose_tabular_dataset.py \
+  --labels data/review/labels_완료_qa.csv \
+  --pose-json-dir /Users/minjoun/Workspace/projects/Hola-Climbing/hola_ind/pose_json \
+  --out data/tabular_dataset/qa_normalized \
+  --variant normalized
+
+uv run python scripts/build_flow_dataset.py \
+  --labels data/review/labels_완료_qa.csv \
+  --videos-dir /Users/minjoun/Movies/Original \
+  --out data/flow_dataset/qa_flow
+
+uv run python scripts/build_fusion_dataset.py \
+  --left data/tabular_dataset/qa_normalized \
+  --right data/flow_dataset/qa_flow \
+  --out data/fusion_dataset/qa_normalized_flow
+
+uv run python scripts/train_tabular_dynamic_static.py \
+  --data data/flow_dataset/qa_flow \
+  --out models/flow_qa_rf.joblib \
+  --run-name flow_qa \
+  --splits holdout,kfold,group-kfold
+```
+
+2026-06-05 기준 QA 라벨 206개에서 flow-only RF가 가장 안정적입니다. `flow_qa`는
+5-fold balanced accuracy `0.8146`, group-kfold balanced accuracy `0.8247`, dynamic recall
+`0.8181`입니다. `qa_normalized + flow` fusion도 group-kfold `0.7987`로 강하지만 flow-only보다
+낮아, 첫 optional inference 후보는 flow-only로 둡니다.
+
 ### 추후 작업
 
-- [ ] `tests/` 통합 테스트 (testcontainers + Mock GCS) — qa-engineer 영역
 - [ ] `.github/workflows/ci.yml` — uv sync + ruff + mypy + pytest
 - [ ] Prometheus `/metrics` 엔드포인트 (deps에 `prometheus-client` 있음)
-- [ ] Readiness probe 실제 구현 (`app/api/health.py:30-40`의 TODO)
 - [ ] DLQ 재처리 도구 (`scripts/replay_dlq.py`)
 
 ---

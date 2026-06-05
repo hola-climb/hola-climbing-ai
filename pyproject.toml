@@ -34,6 +34,12 @@ dev = [
     "mypy>=1.13",
     "pre-commit>=4.0",
 ]
+ml = [
+    "joblib>=1.4",
+    "scikit-learn>=1.5",
+    "scipy>=1.13",
+    "torch>=2.3,<3",
+]
 
 [build-system]
 requires = ["hatchling"]

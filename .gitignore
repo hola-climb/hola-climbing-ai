@@ -37,6 +37,15 @@ htmlcov/
 # Workspace (에이전트 산출물)
 _workspace/
 
+# ML artifacts
+data/pose_dataset/
+data/pose_dataset_reviewed/
+data/review/
+data/tabular_dataset/
+data/flow_dataset/
+data/fusion_dataset/
+models/
+
 # Temp
 /tmp/
 *.tmp

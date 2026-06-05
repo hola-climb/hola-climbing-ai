@@ -56,7 +56,7 @@ async def _publish(video_id: int, message: str) -> None:
                 message=message,
             )
         )
-    except Exception:  # noqa: BLE001 — progress 실패가 분석 실패는 아님
+    except Exception:
         logger.warning(
             "publish_progress failed (ignored)",
             extra={"video_id": video_id, "progress_message": message},
@@ -69,6 +69,7 @@ def _run_vision_pipeline(
     target_fps: int,
     model_complexity: int,
     min_detection_confidence: float,
+    task_model_path: str | None,
 ) -> list[AnalysisSegmentPayload]:
     """frames → pose → segments → classify. 동기 / CPU-bound. to_thread로 감싸 호출."""
     frames = iter_frames(video_path, target_fps=target_fps)
@@ -76,6 +77,7 @@ def _run_vision_pipeline(
         frames,
         model_complexity=model_complexity,
         min_detection_confidence=min_detection_confidence,
+        task_model_path=task_model_path,
     )
     segments = split_segments(pose_frames)
     payloads = classify_segments(pose_frames, segments)
@@ -134,6 +136,7 @@ async def process_job(request: StreamRequest) -> None:
                 s.frame_target_fps,
                 s.mp_model_complexity,
                 s.mp_min_detection_confidence,
+                s.mp_task_model_path,
             )
         except AnalysisException as exc:
             failure_reason = exc.reason
@@ -143,7 +146,7 @@ async def process_job(request: StreamRequest) -> None:
                 extra={"video_id": video_id, "reason": exc.reason.value, "msg": exc.message},
             )
             raise
-        except Exception as exc:  # noqa: BLE001 — vision 라이브러리 비분류 예외 흡수
+        except Exception as exc:
             failure_reason = AnalysisFailureReason.INTERNAL
             failure_msg = f"vision internal: {exc!r}"
             logger.exception("vision pipeline internal error", extra={"video_id": video_id})
@@ -194,7 +197,7 @@ async def process_job(request: StreamRequest) -> None:
             raise cb_exc from exc
         return
 
-    except Exception as exc:  # noqa: BLE001 — orchestrator 외부 어떤 예외도 callback으로 변환
+    except Exception as exc:
         logger.exception("process_job unexpected error", extra={"video_id": video_id})
         try:
             await post_callback(

@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Final
+from collections.abc import Awaitable, Iterable
+from inspect import isawaitable
+from typing import Final, TypeAlias, cast
 
 import redis.asyncio as aioredis
 from redis.exceptions import ResponseError
@@ -30,6 +32,8 @@ logger = logging.getLogger(__name__)
 _client: aioredis.Redis | None = None
 
 _BUSYGROUP: Final[str] = "BUSYGROUP"
+RedisStreamValue: TypeAlias = bytes | bytearray | memoryview | str | int | float
+RedisStreamPayload: TypeAlias = dict[RedisStreamValue, RedisStreamValue]
 
 
 async def get_redis() -> aioredis.Redis:
@@ -66,8 +70,7 @@ async def ensure_consumer_group(stream_key: str, group: str) -> None:
     """`XGROUP CREATE {stream_key} {group} $ MKSTREAM`.
 
     BUSYGROUP 에러(이미 존재)는 무시. 그 외 에러는 raise.
-    `id="$"`로 신규 메시지만 소비 (재시작 시 미처리 메시지는 PEL 회수로 처리하는 게 정공법이지만
-    MVP는 단순화: 새 메시지만).
+    `id="$"`로 신규 메시지만 소비한다. 오래된 PEL 메시지는 `xautoclaim_pending()`에서 회수한다.
     """
     r = await get_redis()
     try:
@@ -117,7 +120,7 @@ async def xreadgroup(
         [(message_id, raw_fields), ...]. block 타임아웃 시 빈 리스트.
 
     Notes:
-        - `>` (only new) 사용. PEL replay는 별도 함수 (MVP 미구현).
+        - `>` (only new) 사용. PEL replay는 `xautoclaim_pending()`이 담당한다.
         - 파싱은 호출자(stream_consumer)가 수행한다. 그래야 ValidationError가 나도
           message_id를 보존하여 dead-letter + ack 처리할 수 있다.
     """
@@ -131,18 +134,61 @@ async def xreadgroup(
     )
     if not msgs:
         return []
-    parsed: list[tuple[str, dict[str, object]]] = []
     # msgs shape: [(stream_name_bytes, [(msg_id_bytes, {field_bytes: value_bytes}), ...])]
-    for _stream_name, entries in msgs:
-        for msg_id, fields in entries:
-            msg_id_str = msg_id.decode() if isinstance(msg_id, (bytes, bytearray)) else str(msg_id)
-            # XREADGROUP 결과의 키가 bytes — StreamRequest 검증기가 bytes 처리하지만
-            # alias 매칭을 위해 string key dict로 변환.
-            str_fields: dict[str, object] = {}
-            for k, v in fields.items():
-                key = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
-                str_fields[key] = v
-            parsed.append((msg_id_str, str_fields))
+    return _normalize_entries(entry for _stream_name, entries in msgs for entry in entries)
+
+
+async def xautoclaim_pending(
+    stream_key: str,
+    group: str,
+    consumer: str,
+    min_idle_ms: int,
+    count: int = 1,
+) -> list[tuple[str, dict[str, object]]]:
+    """Claim stale PEL entries from other dead/slow consumers.
+
+    Redis `XAUTOCLAIM` returns messages already assigned to the group but idle longer
+    than `min_idle_ms`. The return shape differs slightly between redis-py versions,
+    so this helper normalizes only the entries part into the same shape as
+    `xreadgroup()`.
+    """
+    r = await get_redis()
+    response = await r.xautoclaim(
+        name=stream_key,
+        groupname=group,
+        consumername=consumer,
+        min_idle_time=min_idle_ms,
+        start_id="0-0",
+        count=count,
+    )
+    if not response:
+        return []
+
+    entries_obj: object
+    if isinstance(response, (list, tuple)) and len(response) >= 2:
+        entries_obj = response[1]
+    else:
+        return []
+    if not isinstance(entries_obj, list):
+        return []
+    return _normalize_entries(entries_obj)
+
+
+def _normalize_entries(entries: Iterable[object]) -> list[tuple[str, dict[str, object]]]:
+    """Normalize Redis stream entries to `(message_id, string_key_fields)`."""
+    parsed: list[tuple[str, dict[str, object]]] = []
+    for entry in entries:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+            continue
+        msg_id, fields = entry
+        msg_id_str = msg_id.decode() if isinstance(msg_id, (bytes, bytearray)) else str(msg_id)
+        if not isinstance(fields, dict):
+            continue
+        str_fields: dict[str, object] = {}
+        for k, v in fields.items():
+            key = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
+            str_fields[key] = v
+        parsed.append((msg_id_str, str_fields))
     return parsed
 
 
@@ -159,7 +205,7 @@ async def xadd_dead_letter(payload: dict[str, str]) -> None:
     """
     s = get_settings()
     r = await get_redis()
-    await r.xadd(s.redis_dlq_key, payload)
+    await r.xadd(s.redis_dlq_key, cast(RedisStreamPayload, payload))
     logger.warning("dead-letter pushed", extra={"dlq": s.redis_dlq_key, **payload})
 
 
@@ -167,6 +213,9 @@ async def ping() -> bool:
     """Health check. Redis 연결 가능 여부."""
     try:
         r = await get_redis()
-        return bool(await r.ping())
+        result_or_awaitable = r.ping()
+        if isawaitable(result_or_awaitable):
+            return bool(await cast(Awaitable[object], result_or_awaitable))
+        return bool(result_or_awaitable)
     except Exception:
         return False
