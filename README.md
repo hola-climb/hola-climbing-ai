@@ -492,6 +492,12 @@ uv run python scripts/train_tabular_dynamic_static.py \
   --out models/flow_qa_rf.joblib \
   --run-name flow_qa \
   --splits holdout,kfold,group-kfold
+
+uv run python scripts/build_flow_miss_review_queue.py \
+  --predictions models/reports/flow_qa_predictions.csv \
+  --out data/review/flow_miss_review_queue.csv \
+  --model rf \
+  --split group-kfold
 ```
 
 2026-06-05 기준 QA 라벨 206개에서 flow-only RF가 가장 안정적입니다. `flow_qa`는
