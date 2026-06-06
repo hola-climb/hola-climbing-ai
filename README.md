@@ -404,6 +404,8 @@ uv run python scripts/train_pose_sequence.py \
 
 `data/pose_dataset/`와 `models/`는 학습 산출물이므로 git에 포함하지 않습니다. 현재 워커의
 기본 분석 결과는 기존 휴리스틱 파이프라인을 유지하며, 학습 모델은 평가 후 optional로 연결합니다.
+운영 Docker 이미지는 `mediapipe` Tasks 런타임에 필요한
+`models/mediapipe/pose_landmarker_lite.task`를 build 단계에서 checksum으로 고정 다운로드합니다.
 
 성능 진단과 비교 실험은 같은 cache에서 바로 실행할 수 있습니다.
 

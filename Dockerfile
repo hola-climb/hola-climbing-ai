@@ -24,6 +24,8 @@ WORKDIR /app
 
 # 의존성 메타데이터만 먼저 복사 → 레이어 캐시 최적화
 COPY pyproject.toml ./
+# hatchling metadata가 pyproject.toml의 `readme = "README.md"`를 검증한다.
+COPY README.md ./
 # uv.lock가 존재하면 frozen 설치, 없으면 일반 sync
 COPY uv.lock* ./
 
@@ -67,6 +69,15 @@ COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
 # 애플리케이션 코드
 COPY --chown=appuser:appuser app ./app
 COPY --chown=appuser:appuser pyproject.toml ./
+
+# MediaPipe 0.10.35는 mp.solutions가 없어 Tasks 모델 파일이 필요하다.
+# gitignored 로컬 models/에 의존하지 않도록 이미지 빌드 시 checksum으로 고정 다운로드한다.
+RUN mkdir -p /app/models/mediapipe \
+    && chown -R appuser:appuser /app/models
+ADD --checksum=sha256:59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a \
+    --chown=appuser:appuser \
+    https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task \
+    /app/models/mediapipe/pose_landmarker_lite.task
 
 USER appuser
 

@@ -37,6 +37,7 @@ CLAUDE.md
 README.md
 LICENSE
 *.md
+!README.md
 !app/**/*.md
 
 # 빌드 산출물
