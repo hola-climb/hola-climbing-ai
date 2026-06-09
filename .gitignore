@@ -25,6 +25,16 @@ keys/
 .idea/
 *.swp
 
+# Local AI assistants / agent harnesses
+.agents/
+.claude/
+.codex/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.cursor/
+.windsurf/
+
 # Test / coverage
 .pytest_cache/
 .coverage

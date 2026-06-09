@@ -1,1 +1,0 @@
-/Users/minjoun/Documents/DevKnowledge/00_System/GLOBAL_AI_RULES.md
