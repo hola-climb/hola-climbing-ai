@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     gcs_download_dir: str = "/tmp/hola-videos"
 
     # --- Callback ---
+    ai_callback_secret: str = ""
     callback_timeout_seconds: float = 10.0
     callback_max_retries: int = 3
     callback_retry_initial_seconds: float = 1.0

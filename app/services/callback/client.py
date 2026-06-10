@@ -42,14 +42,22 @@ class _PermanentCallbackError(Exception):
     """4xx. 즉시 dead-letter."""
 
 
-async def _post_once(callback_url: str, body_json: str, timeout: float) -> None:
+async def _post_once(
+    callback_url: str,
+    body_json: str,
+    timeout: float,
+    callback_secret: str = "",
+) -> None:
     """단일 POST. transient/permanent 예외로 변환."""
+    headers = {"Content-Type": "application/json"}
+    if callback_secret:
+        headers["X-AI-Callback-Secret"] = callback_secret
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
                 callback_url,
                 content=body_json,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
             )
     except (httpx.TimeoutException, httpx.TransportError) as exc:
         raise _TransientCallbackError(f"network: {exc!r}") from exc
@@ -104,7 +112,12 @@ async def post_callback(callback_url: str, body: AnalysisIngestRequest) -> None:
     try:
         async for attempt in retrying:
             with attempt:
-                await _post_once(callback_url, body_json, s.callback_timeout_seconds)
+                await _post_once(
+                    callback_url,
+                    body_json,
+                    s.callback_timeout_seconds,
+                    s.ai_callback_secret,
+                )
     except _PermanentCallbackError as exc:
         logger.error(
             "callback.post permanent failure",

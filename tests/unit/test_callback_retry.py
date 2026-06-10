@@ -175,3 +175,27 @@ async def test_callback_body_serialization_is_snake_case(
     assert seg["confidence"] == 0.8
 
     assert captured["headers"].get("content-type") == "application/json"
+    assert "x-ai-callback-secret" not in captured["headers"]
+
+
+@respx.mock
+async def test_callback_secret_header_is_sent_when_configured(
+    callback_body: AnalysisIngestRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Spring AiCallbackSecretFilter와 맞추기 위해 공유 시크릿 헤더를 보낸다."""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("AI_CALLBACK_SECRET", "secret-for-test")
+    get_settings.cache_clear()
+    captured: dict = {}
+
+    def _capture(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, json={"is_success": True})
+
+    respx.post(URL).mock(side_effect=_capture)
+    await post_callback(URL, callback_body)
+
+    assert captured["headers"].get("x-ai-callback-secret") == "secret-for-test"
+    get_settings.cache_clear()

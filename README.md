@@ -201,6 +201,7 @@ curl http://localhost:8000/health/ready  # readiness (Redis/GCS)
 
 | 변수 | 기본값 | 필수 | 설명 |
 |------|--------|------|------|
+| `AI_CALLBACK_SECRET` | (빈 값) | Spring 설정 시 yes | Spring `AI_CALLBACK_SECRET`과 동일. 값이 있으면 `X-AI-Callback-Secret` 헤더로 전송 |
 | `CALLBACK_TIMEOUT_SECONDS` | `10` | no | httpx 요청 타임아웃 |
 | `CALLBACK_MAX_RETRIES` | `3` | no | tenacity `stop_after_attempt` |
 | `CALLBACK_RETRY_INITIAL_SECONDS` | `1` | no | 지수 백오프 초기값 |
