@@ -79,6 +79,9 @@ ADD --checksum=sha256:59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c45969
     https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task \
     /app/models/mediapipe/pose_landmarker_lite.task
 
+# flow gate RF artifact (git 추적됨). 활성화는 FLOW_GATE_MODEL_PATH 환경변수로 결정.
+COPY --chown=appuser:appuser models/flow_qa_rf_v2.joblib ./models/flow_qa_rf_v2.joblib
+
 USER appuser
 
 EXPOSE 8000

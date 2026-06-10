@@ -232,7 +232,9 @@ rule 출력의 사후 보정 prior로 동작합니다. flow RF가 "static 위주
 - 게이트 on 시 콜백 `model_version`이 `rule_v1+flow_rf_v2`로 바뀝니다 (계약 변경 없음)
 - 추론 비용: 영상당 약 +7~11초 (Farneback optical flow 전체 패스)
 - 모델 로딩/추론 실패 시 rule 출력으로 자동 fallback (분석 실패 아님)
-- ml 의존성 필요: `uv sync --group ml`
+- artifact (`models/flow_qa_rf_v2.joblib`, 816KB)는 git 추적 + Docker 이미지 포함.
+  docker-compose는 게이트 기본 on (`FLOW_GATE_MODEL_PATH` 빈 값 override로 off)
+- 추론 의존성 (joblib/scikit-learn/scipy)은 main 의존성. `ml` 그룹(torch)은 학습 전용
 
 ---
 

@@ -21,6 +21,10 @@ dependencies = [
     "tenacity>=9.0",
     "structlog>=24.4",
     "prometheus-client>=0.21",
+    # flow gate 런타임 (RF 추론 + flow feature의 savgol_filter)
+    "joblib>=1.4",
+    "scikit-learn>=1.5",
+    "scipy>=1.13",
 ]
 
 [dependency-groups]
@@ -35,9 +39,7 @@ dev = [
     "pre-commit>=4.0",
 ]
 ml = [
-    "joblib>=1.4",
-    "scikit-learn>=1.5",
-    "scipy>=1.13",
+    # 학습/실험 전용 (GRU 등). 워커 런타임 이미지에는 포함하지 않는다.
     "torch>=2.3,<3",
 ]
 
