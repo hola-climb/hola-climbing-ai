@@ -153,12 +153,44 @@ async def process_job(request: StreamRequest) -> None:
             raise AnalysisException(AnalysisFailureReason.INTERNAL, failure_msg) from exc
 
         await _publish(video_id, "포즈 추정 완료")
+
+        # 6.5. flow 게이트 (optional ML 보정). 실패는 rule 출력으로 fallback.
+        model_version = s.model_version
+        if s.flow_gate_model_path:
+            try:
+                from app.services.vision.flow_gate import apply_flow_gate
+
+                segments_out, prob_dynamic = await asyncio.to_thread(
+                    apply_flow_gate,
+                    str(video_path),
+                    segments_out,
+                    model_path=s.flow_gate_model_path,
+                    static_threshold=s.flow_gate_static_threshold,
+                    dynamic_threshold=s.flow_gate_dynamic_threshold,
+                    demote_confidence=s.flow_gate_demote_confidence,
+                )
+                model_version = f"{s.model_version}+{s.flow_gate_version_suffix}"
+                logger.info(
+                    "flow gate applied",
+                    extra={
+                        "video_id": video_id,
+                        "prob_dynamic": round(prob_dynamic, 4),
+                        "segments": len(segments_out),
+                    },
+                )
+            except Exception:  # noqa: BLE001 — 게이트 실패가 분석 실패는 아님
+                logger.warning(
+                    "flow gate failed; falling back to rule output",
+                    extra={"video_id": video_id},
+                    exc_info=True,
+                )
+
         await _publish(video_id, "기술 분류 완료, 결과 전송 중")
 
         # 7. 콜백 — done
         done_body = AnalysisIngestRequest(
             status="done",
-            model_version=s.model_version,
+            model_version=model_version,
             segments=segments_out,
         )
         await post_callback(callback_url, done_body)

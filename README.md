@@ -214,6 +214,26 @@ curl http://localhost:8000/health/ready  # readiness (Redis/GCS)
 | `MP_MIN_DETECTION_CONFIDENCE` | `0.5` | no | landmark detection threshold |
 | `FRAME_TARGET_FPS` | `15` | no | OpenCV 다운샘플링 (원본 30fps → 15fps) |
 
+### Flow gate (optional ML 보정)
+
+| 변수 | 기본값 | 필수 | 설명 |
+|------|--------|------|------|
+| `FLOW_GATE_MODEL_PATH` | (빈 값 = off) | no | flow RF artifact 경로 (예: `models/flow_qa_rf_v2.joblib`) |
+| `FLOW_GATE_STATIC_THRESHOLD` | `0.30` | no | prob_dynamic이 이 값 미만이면 static 확신 → 보정 발동 |
+| `FLOW_GATE_DYNAMIC_THRESHOLD` | `0.70` | no | 이 값 초과면 dynamic 확신 (현재 개입 없음, 예약) |
+| `FLOW_GATE_DEMOTE_CONFIDENCE` | `0.55` | no | static 확신 시 이 confidence 미만의 dynamic segment를 drop |
+| `FLOW_GATE_VERSION_SUFFIX` | `flow_rf_v2` | no | 게이트 적용 시 `model_version`에 붙는 suffix |
+
+영상 단위 dynamic/static RF (group-kfold balanced accuracy **0.8381**, 2026-06-10)가
+rule 출력의 사후 보정 prior로 동작합니다. flow RF가 "static 위주 영상"이라
+확신하고 rule confidence도 약한 dynamic segment만 drop — 두 신호가 동시에
+약할 때만 개입하므로 백다이노류 미세 다이나믹 무브는 보존됩니다.
+
+- 게이트 on 시 콜백 `model_version`이 `rule_v1+flow_rf_v2`로 바뀝니다 (계약 변경 없음)
+- 추론 비용: 영상당 약 +7~11초 (Farneback optical flow 전체 패스)
+- 모델 로딩/추론 실패 시 rule 출력으로 자동 fallback (분석 실패 아님)
+- ml 의존성 필요: `uv sync --group ml`
+
 ---
 
 ## Redis Streams 계약
