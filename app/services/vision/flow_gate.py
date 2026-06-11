@@ -18,6 +18,10 @@ flow-only RF (group-kfold balanced accuracy 0.8381, 2026-06-10 재학습)가
 FLOW_GATE_MODEL_PATH 미설정 시 본 모듈은 호출되지 않는다. 모델 로딩·추론
 실패는 호출자(orchestrator)가 catch하여 rule 출력 그대로 fallback한다.
 sklearn/scipy는 optional `ml` 그룹 의존성이므로 모든 import는 lazy.
+
+2026-06-10 v3 feature 실험은 v2 대비 성능 보합이라 운영 기본 artifact는 v2를
+유지한다. v3 artifact는 feature_dim=46에 맞춰 burst-aware feature를 사용하고,
+v4 artifact는 feature_dim=58에 맞춰 magnitude + vy direction feature를 사용한다.
 """
 
 from __future__ import annotations
@@ -59,8 +63,8 @@ def _load_artifact(model_path: str) -> dict[str, Any]:
 def predict_prob_dynamic(video_path: str, model_path: str) -> float:
     """영상에서 flow feature를 추출해 dynamic 확률을 반환.
 
-    학습 시 build_flow_dataset.py와 동일한 전처리를 사용한다:
-    extract_flow_magnitude → remove_fall_end → extract_flow_stats (42-dim).
+    학습 시 build_flow_dataset.py와 동일한 전처리를 사용한다. v2 artifact(42-dim)는
+    legacy feature를, v3 artifact(46-dim)는 burst-aware feature를 사용한다.
 
     Raises:
         FileNotFoundError: 모델 artifact 없음.
@@ -68,16 +72,31 @@ def predict_prob_dynamic(video_path: str, model_path: str) -> float:
     """
     # lazy: scipy 의존 (ml optional group)
     from app.services.vision.flow_features import (
-        extract_flow_magnitude,
+        FLOW_FEATURE_DIM,
+        LEGACY_FLOW_FEATURE_DIM,
+        V3_FLOW_FEATURE_DIM,
+        extract_flow_series,
         extract_flow_stats,
+        extract_flow_stats_legacy,
+        extract_flow_stats_v3,
         remove_fall_end,
     )
 
     artifact = _load_artifact(model_path)
-    flow_mag, _src_fps, _duration = extract_flow_magnitude(Path(video_path))
-    features = extract_flow_stats(remove_fall_end(flow_mag))
+    expected_dim = int(artifact.get("feature_dim", 0))
+    flow_series, _src_fps, _duration = extract_flow_series(Path(video_path))
+    trimmed = remove_fall_end(flow_series)
+    magnitude = trimmed[:, 0] if trimmed.ndim == 2 else trimmed
+    if expected_dim == LEGACY_FLOW_FEATURE_DIM:
+        features = extract_flow_stats_legacy(magnitude)
+    elif expected_dim == V3_FLOW_FEATURE_DIM:
+        features = extract_flow_stats_v3(magnitude)
+    elif expected_dim == FLOW_FEATURE_DIM or expected_dim == 0:
+        features = extract_flow_stats(trimmed)
+    else:
+        raise ValueError(f"unsupported flow feature dim: {expected_dim}")
 
-    expected_dim = int(artifact.get("feature_dim", features.shape[0]))
+    expected_dim = expected_dim or int(features.shape[0])
     if features.shape[0] != expected_dim:
         raise ValueError(
             f"flow feature dim mismatch: got {features.shape[0]}, expected {expected_dim}"

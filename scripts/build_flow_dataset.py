@@ -2,9 +2,9 @@
 
 Usage:
     uv run python scripts/build_flow_dataset.py \
-        --labels data/review/labels_완료_qa.csv \
+        --labels data/review/labels_완료_qa_v2.csv \
         --videos-dir /Users/minjoun/Movies/Original \
-        --out data/flow_dataset/qa_flow
+        --out data/flow_dataset/qa_flow_v3
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ from pathlib import Path
 import numpy as np
 
 from app.services.vision.flow_features import (
-    extract_flow_magnitude,
+    FLOW_FEATURE_VERSION,
+    extract_flow_series,
     extract_flow_stats,
     remove_fall_end,
 )
@@ -50,13 +51,13 @@ def build_flow_dataset(
     manifest_rows: list[dict[str, object]] = []
     for item in matched:
         try:
-            flow_mag, src_fps, duration_sec = extract_flow_magnitude(
+            flow_series, src_fps, duration_sec = extract_flow_series(
                 item.video_path,
                 resize=resize,
                 target_fps=target_fps,
             )
-            trimmed = remove_fall_end(flow_mag)
-            features = extract_flow_stats(trimmed)
+            trimmed = remove_fall_end(flow_series)
+            features = extract_flow_stats(trimmed, target_fps=target_fps)
             out_path = out_dir / f"{item.stem}.npz"
             np.savez_compressed(
                 out_path,
@@ -65,7 +66,8 @@ def build_flow_dataset(
                 stem=np.asarray(item.stem),
                 source_path=np.asarray(str(item.video_path)),
                 variant=np.asarray("flow"),
-                raw_flow_frames=np.asarray(len(flow_mag), dtype=np.int64),
+                feature_version=np.asarray(FLOW_FEATURE_VERSION),
+                raw_flow_frames=np.asarray(len(flow_series), dtype=np.int64),
                 flow_frames=np.asarray(len(trimmed), dtype=np.int64),
                 src_fps=np.asarray(src_fps, dtype=np.float32),
                 duration_sec=np.asarray(duration_sec, dtype=np.float32),
@@ -76,10 +78,11 @@ def build_flow_dataset(
                     "stem": item.stem,
                     "label": item.label,
                     "variant": "flow",
+                    "feature_version": FLOW_FEATURE_VERSION,
                     "feature_dim": features.shape[0],
                     "source_path": str(item.video_path),
                     "out_path": str(out_path),
-                    "raw_flow_frames": len(flow_mag),
+                    "raw_flow_frames": len(flow_series),
                     "flow_frames": len(trimmed),
                     "src_fps": round(src_fps, 4),
                     "duration_sec": round(duration_sec, 4),
@@ -102,6 +105,7 @@ def _write_manifest(path: Path, rows: list[dict[str, object]]) -> None:
         "stem",
         "label",
         "variant",
+        "feature_version",
         "feature_dim",
         "source_path",
         "out_path",

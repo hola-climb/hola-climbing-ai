@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import joblib
+import numpy as np
 import pytest
 
 from app.models.callback import AnalysisSegmentPayload
@@ -13,6 +14,7 @@ from app.services.vision.flow_gate import (
     _load_artifact,
     adjust_segments,
     apply_flow_gate,
+    predict_prob_dynamic,
 )
 
 STATIC_TH = 0.30
@@ -145,3 +147,92 @@ class TestApplyFlowGate:
         )
         assert prob == 0.10
         assert [s.technique for s in out] == ["high_step"]
+
+
+class _RecordingModel:
+    def __init__(self) -> None:
+        self.seen_shape: tuple[int, int] | None = None
+
+    def predict_proba(self, x):
+        self.seen_shape = x.shape
+        return np.asarray([[0.8, 0.2]], dtype=np.float64)
+
+
+class TestPredictProbDynamic:
+    def test_uses_legacy_42_dim_features_for_v2_artifacts(self, monkeypatch):
+        model = _RecordingModel()
+        monkeypatch.setattr(
+            "app.services.vision.flow_gate._load_artifact",
+            lambda model_path: {"model": model, "classes": ["static", "dynamic"], "feature_dim": 42},
+        )
+        monkeypatch.setattr(
+            "app.services.vision.flow_features.extract_flow_series",
+            lambda video_path: (
+                np.stack(
+                    [
+                        np.linspace(0.1, 1.0, num=90, dtype=np.float32),
+                        np.zeros(90, dtype=np.float32),
+                    ],
+                    axis=1,
+                ),
+                30.0,
+                3.0,
+            ),
+        )
+
+        prob = predict_prob_dynamic("video.mp4", "v2.joblib")
+
+        assert prob == 0.2
+        assert model.seen_shape == (1, 42)
+
+    def test_uses_v3_46_dim_features_for_v3_artifacts(self, monkeypatch):
+        model = _RecordingModel()
+        monkeypatch.setattr(
+            "app.services.vision.flow_gate._load_artifact",
+            lambda model_path: {"model": model, "classes": ["static", "dynamic"], "feature_dim": 46},
+        )
+        monkeypatch.setattr(
+            "app.services.vision.flow_features.extract_flow_series",
+            lambda video_path: (
+                np.stack(
+                    [
+                        np.linspace(0.1, 1.0, num=90, dtype=np.float32),
+                        np.zeros(90, dtype=np.float32),
+                    ],
+                    axis=1,
+                ),
+                30.0,
+                3.0,
+            ),
+        )
+
+        prob = predict_prob_dynamic("video.mp4", "v3.joblib")
+
+        assert prob == 0.2
+        assert model.seen_shape == (1, 46)
+
+    def test_uses_v4_58_dim_features_for_v4_artifacts(self, monkeypatch):
+        model = _RecordingModel()
+        monkeypatch.setattr(
+            "app.services.vision.flow_gate._load_artifact",
+            lambda model_path: {"model": model, "classes": ["static", "dynamic"], "feature_dim": 58},
+        )
+        monkeypatch.setattr(
+            "app.services.vision.flow_features.extract_flow_series",
+            lambda video_path: (
+                np.stack(
+                    [
+                        np.linspace(0.1, 1.0, num=90, dtype=np.float32),
+                        np.linspace(-0.2, 0.2, num=90, dtype=np.float32),
+                    ],
+                    axis=1,
+                ),
+                30.0,
+                3.0,
+            ),
+        )
+
+        prob = predict_prob_dynamic("video.mp4", "v4.joblib")
+
+        assert prob == 0.2
+        assert model.seen_shape == (1, 58)

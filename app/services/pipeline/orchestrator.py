@@ -178,7 +178,7 @@ async def process_job(request: StreamRequest) -> None:
                         "segments": len(segments_out),
                     },
                 )
-            except Exception:  # noqa: BLE001 — 게이트 실패가 분석 실패는 아님
+            except Exception:
                 logger.warning(
                     "flow gate failed; falling back to rule output",
                     extra={"video_id": video_id},

@@ -22,7 +22,7 @@ def test_build_flow_dataset_from_labeled_videos(
     labels.write_text("filename,label\nA.json,0\nB.json,1\nC.json,\n", encoding="utf-8")
     out = tmp_path / "out"
 
-    def fake_extract_flow_magnitude(
+    def fake_extract_flow_series(
         video_path: Path,
         *,
         resize: tuple[int, int] = (320, 240),
@@ -31,11 +31,13 @@ def test_build_flow_dataset_from_labeled_videos(
         assert video_path.name in {"A.mp4", "B.mov"}
         assert resize == (320, 240)
         assert target_fps == 30
-        return np.linspace(0.1, 1.0, num=90, dtype=np.float32), 30.0, 3.0
+        magnitude = np.linspace(0.1, 1.0, num=90, dtype=np.float32)
+        vy = np.linspace(-0.2, 0.2, num=90, dtype=np.float32)
+        return np.stack([magnitude, vy], axis=1), 30.0, 3.0
 
     monkeypatch.setattr(
-        "scripts.build_flow_dataset.extract_flow_magnitude",
-        fake_extract_flow_magnitude,
+        "scripts.build_flow_dataset.extract_flow_series",
+        fake_extract_flow_series,
     )
 
     result = build_flow_dataset(labels_csv=labels, videos_dir=videos, out_dir=out)
@@ -44,5 +46,6 @@ def test_build_flow_dataset_from_labeled_videos(
     assert result.missing == []
     assert sorted(p.name for p in out.glob("*.npz")) == ["A.npz", "B.npz"]
     with np.load(out / "A.npz", allow_pickle=False) as data:
-        assert data["x"].shape == (42,)
+        assert data["x"].shape == (58,)
         assert int(data["label"]) == 0
+        assert str(data["feature_version"]) == "flow_v4"

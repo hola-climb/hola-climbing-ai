@@ -12,16 +12,25 @@ from scipy.signal import savgol_filter
 
 _DEFAULT_RESIZE: Final[tuple[int, int]] = (320, 240)
 _DEFAULT_TARGET_FPS: Final[int] = 30
+FLOW_FEATURE_VERSION: Final[str] = "flow_v4"
+FLOW_FEATURE_DIM: Final[int] = 58
+V3_FLOW_FEATURE_DIM: Final[int] = 46
+LEGACY_FLOW_FEATURE_DIM: Final[int] = 42
 _EPS: Final[float] = 1e-6
 
 
-def extract_flow_magnitude(
+def extract_flow_series(
     video_path: Path,
     *,
     resize: tuple[int, int] = _DEFAULT_RESIZE,
     target_fps: int = _DEFAULT_TARGET_FPS,
 ) -> tuple[NDArray[np.float32], float, float]:
-    """Extract mean Farneback optical-flow magnitude at normalized FPS."""
+    """Extract mean Farneback optical-flow magnitude and vertical velocity.
+
+    Returns an `(T, 2)` series where channel 0 is magnitude and channel 1 is
+    `vy`. OpenCV image coordinates use +y downward, so positive `vy` means
+    downward/fall-like motion and negative `vy` means upward/dyno-like motion.
+    """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise ValueError(f"failed to open video: {video_path}")
@@ -52,7 +61,7 @@ def extract_flow_magnitude(
     if len(frames) < 5:
         raise ValueError(f"not enough valid frames: {len(frames)}")
 
-    flow_mags: list[float] = []
+    flow_rows: list[tuple[float, float]] = []
     for i in range(1, len(frames)):
         initial_flow = np.zeros((frames[i].shape[0], frames[i].shape[1], 2), dtype=np.float32)
         flow = cv2.calcOpticalFlowFarneback(
@@ -69,26 +78,119 @@ def extract_flow_magnitude(
         )
         flow_arr = cast(NDArray[np.float32], flow)
         magnitude = np.sqrt(flow_arr[..., 0] ** 2 + flow_arr[..., 1] ** 2).mean()
-        flow_mags.append(float(magnitude))
+        vy = flow_arr[..., 1].mean()
+        flow_rows.append((float(magnitude), float(vy)))
 
-    return np.asarray(flow_mags, dtype=np.float32), src_fps, duration_sec
+    return np.asarray(flow_rows, dtype=np.float32), src_fps, duration_sec
 
 
-def remove_fall_end(flow_mag: NDArray[np.float32], tail_ratio: float = 0.05) -> NDArray[np.float32]:
-    """Trim a final tail spike that looks like camera/body fall motion."""
+def extract_flow_magnitude(
+    video_path: Path,
+    *,
+    resize: tuple[int, int] = _DEFAULT_RESIZE,
+    target_fps: int = _DEFAULT_TARGET_FPS,
+) -> tuple[NDArray[np.float32], float, float]:
+    """Extract mean Farneback optical-flow magnitude at normalized FPS."""
+    flow_series, src_fps, duration_sec = extract_flow_series(
+        video_path,
+        resize=resize,
+        target_fps=target_fps,
+    )
+    return flow_series[:, 0], src_fps, duration_sec
+
+
+def trim_fall_segment(
+    flow_mag: NDArray[np.float32],
+    *,
+    spike_multiplier: float = 3.5,
+    max_trim_ratio: float = 0.25,
+    min_tail_frames: int = 2,
+) -> NDArray[np.float32]:
+    """Trim a contiguous terminal flow burst that likely comes from fall/slip motion."""
     signal = np.asarray(flow_mag, dtype=np.float32)
-    tail_len = max(1, int(len(signal) * tail_ratio))
-    tail = signal[-tail_len:]
-    body = signal[:-tail_len]
-    if len(body) == 0:
+    if len(signal) < 5:
         return signal
-    if float(tail.max()) > float(np.percentile(body, 99)) * 2.0:
-        return body
-    return signal
+
+    magnitude = signal[:, 0] if signal.ndim == 2 else signal
+    baseline = float(np.median(magnitude))
+    if baseline <= _EPS:
+        baseline = float(np.percentile(magnitude, 50))
+    threshold = max(baseline * spike_multiplier, baseline + _EPS)
+    max_trim_frames = max(1, int(len(signal) * max_trim_ratio))
+
+    trim_len = 0
+    idx = len(signal) - 1
+    while idx >= 0 and trim_len < max_trim_frames and float(magnitude[idx]) > threshold:
+        trim_len += 1
+        idx -= 1
+
+    if trim_len < min_tail_frames:
+        return signal
+
+    trimmed = signal[: len(signal) - trim_len]
+    if len(trimmed) < 5:
+        return signal
+    return trimmed
 
 
-def extract_flow_stats(flow_mag: NDArray[np.float32]) -> NDArray[np.float32]:
-    """Convert a 1D flow magnitude signal into the original 42-dim feature vector."""
+def remove_fall_end(flow_mag: NDArray[np.float32], tail_ratio: float = 0.25) -> NDArray[np.float32]:
+    """Backward-compatible wrapper around dynamic terminal fall trimming."""
+    return trim_fall_segment(flow_mag, max_trim_ratio=tail_ratio)
+
+
+def extract_flow_stats(
+    flow_series: NDArray[np.float32],
+    *,
+    target_fps: int = _DEFAULT_TARGET_FPS,
+) -> NDArray[np.float32]:
+    """Convert flow magnitude/vy series into the v4 58-dim feature vector."""
+    series = np.asarray(flow_series, dtype=np.float32)
+    magnitude, vy = _split_flow_series(series)
+    feature_blocks = [
+        _extract_magnitude_flow_stats(
+            magnitude,
+            target_fps=target_fps,
+            include_burst_features=True,
+        ),
+        _extract_vy_stats(vy, target_fps=target_fps),
+    ]
+    features = np.concatenate(feature_blocks)
+    return cast(NDArray[np.float32], features.astype(np.float32))
+
+
+def extract_flow_stats_v3(
+    flow_mag: NDArray[np.float32],
+    *,
+    target_fps: int = _DEFAULT_TARGET_FPS,
+) -> NDArray[np.float32]:
+    """Convert a 1D flow magnitude signal into the v3 46-dim feature vector."""
+    return _extract_magnitude_flow_stats(flow_mag, target_fps=target_fps, include_burst_features=True)
+
+
+def extract_flow_stats_legacy(
+    flow_mag: NDArray[np.float32],
+    *,
+    target_fps: int = _DEFAULT_TARGET_FPS,
+) -> NDArray[np.float32]:
+    """Convert a 1D flow magnitude signal into the legacy v2 42-dim feature vector."""
+    return _extract_magnitude_flow_stats(flow_mag, target_fps=target_fps, include_burst_features=False)
+
+
+def _split_flow_series(flow_series: NDArray[np.float32]) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
+    if flow_series.ndim == 1:
+        signal = flow_series.astype(np.float32)
+        return signal, np.zeros_like(signal, dtype=np.float32)
+    if flow_series.ndim == 2 and flow_series.shape[1] >= 2:
+        return flow_series[:, 0].astype(np.float32), flow_series[:, 1].astype(np.float32)
+    raise ValueError(f"flow series must have shape (T,) or (T, >=2), got {flow_series.shape}")
+
+
+def _extract_magnitude_flow_stats(
+    flow_mag: NDArray[np.float32],
+    *,
+    target_fps: int,
+    include_burst_features: bool,
+) -> NDArray[np.float32]:
     signal = np.asarray(flow_mag, dtype=np.float32)
     if len(signal) < 5:
         raise ValueError("flow signal must contain at least 5 values")
@@ -116,9 +218,9 @@ def extract_flow_stats(flow_mag: NDArray[np.float32]) -> NDArray[np.float32]:
         ],
         dtype=np.float32,
     )
-    win_05 = _sliding_window_stats(smoothed, window_sec=0.5)
-    win_10 = _sliding_window_stats(smoothed, window_sec=1.0)
-    win_20 = _sliding_window_stats(smoothed, window_sec=2.0)
+    win_05 = _sliding_window_stats(smoothed, window_sec=0.5, fps=target_fps)
+    win_10 = _sliding_window_stats(smoothed, window_sec=1.0, fps=target_fps)
+    win_20 = _sliding_window_stats(smoothed, window_sec=2.0, fps=target_fps)
     dist_stats = np.asarray(
         [
             _skewness(smoothed),
@@ -146,9 +248,14 @@ def extract_flow_stats(flow_mag: NDArray[np.float32]) -> NDArray[np.float32]:
         current_streak = current_streak + 1 if bool(value) else 0
         max_streak = max(max_streak, current_streak)
 
-    hist, _ = np.histogram(smoothed, bins=20, density=True)
-    hist = hist + 1e-9
-    entropy = float(-np.sum(hist * np.log(hist)))
+    hist, _ = np.histogram(smoothed, bins=20, density=False)
+    hist_sum = float(hist.sum())
+    if hist_sum <= _EPS:
+        entropy = 0.0
+    else:
+        probs = hist.astype(np.float32) / hist_sum
+        probs = probs[probs > 0.0]
+        entropy = float(-np.sum(probs * np.log(probs)))
     motion_struct = np.asarray(
         [
             float(is_active.mean()),
@@ -163,20 +270,63 @@ def extract_flow_stats(flow_mag: NDArray[np.float32]) -> NDArray[np.float32]:
         [smoothed[i * segment_size : (i + 1) * segment_size].mean() for i in range(4)],
         dtype=np.float32,
     )
-    features = np.concatenate(
-        [
-            global_stats,
-            peak_ratios,
-            win_05,
-            win_10,
-            win_20,
-            dist_stats,
-            acc_feats,
-            motion_struct,
-            phase_means,
-        ]
-    )
+    feature_blocks = [
+        global_stats,
+        peak_ratios,
+        win_05,
+        win_10,
+        win_20,
+        dist_stats,
+        acc_feats,
+        motion_struct,
+        phase_means,
+    ]
+    if include_burst_features:
+        feature_blocks.append(_burst_window_stats(smoothed, window_sec=2.0, fps=target_fps))
+
+    features = np.concatenate(feature_blocks)
     return cast(NDArray[np.float32], features.astype(np.float32))
+
+
+def _extract_vy_stats(
+    vy: NDArray[np.float32],
+    *,
+    target_fps: int,
+) -> NDArray[np.float32]:
+    signal = np.asarray(vy, dtype=np.float32)
+    if len(signal) < 5:
+        raise ValueError("flow signal must contain at least 5 values")
+
+    smoothed = _smooth(signal)
+    abs_baseline = float(np.median(np.abs(smoothed)))
+    threshold = max(abs_baseline * 2.0, abs_baseline + _EPS)
+    upward = smoothed < -threshold
+    downward = smoothed > threshold
+    win_means = _window_means(smoothed, window_sec=2.0, fps=target_fps)
+    if len(win_means) == 0:
+        max_upward_window_mean = 0.0
+        max_downward_window_mean = 0.0
+    else:
+        max_upward_window_mean = float(np.max(-win_means))
+        max_downward_window_mean = float(np.max(win_means))
+
+    return np.asarray(
+        [
+            float(np.mean(smoothed)),
+            float(np.std(smoothed)),
+            float(np.min(smoothed)),
+            float(np.max(smoothed)),
+            float(np.percentile(smoothed, 10)),
+            float(np.percentile(smoothed, 90)),
+            float(_count_true_runs(upward)),
+            float(upward.mean()),
+            float(_count_true_runs(downward)),
+            float(downward.mean()),
+            max_upward_window_mean,
+            max_downward_window_mean,
+        ],
+        dtype=np.float32,
+    )
 
 
 def _smooth(signal: NDArray[np.float32], window: int = 15) -> NDArray[np.float32]:
@@ -196,16 +346,12 @@ def _sliding_window_stats(
     window_sec: float,
     fps: int = _DEFAULT_TARGET_FPS,
 ) -> NDArray[np.float32]:
-    window_size = max(1, int(window_sec * fps))
-    window_size = min(window_size, len(signal) - 1)
-    count = len(signal) - window_size + 1
-    if count <= 0:
+    win_means = _window_means(signal, window_sec=window_sec, fps=fps)
+    if len(win_means) == 0:
         return np.zeros(6, dtype=np.float32)
 
-    win_means = np.asarray(
-        [signal[i : i + window_size].mean() for i in range(count)],
-        dtype=np.float32,
-    )
+    window_size = _window_size(signal, window_sec=window_sec, fps=fps)
+    count = len(win_means)
     win_maxes = np.asarray(
         [signal[i : i + window_size].max() for i in range(count)],
         dtype=np.float32,
@@ -222,6 +368,72 @@ def _sliding_window_stats(
         ],
         dtype=np.float32,
     )
+
+
+def _burst_window_stats(
+    signal: NDArray[np.float32],
+    *,
+    window_sec: float,
+    fps: int = _DEFAULT_TARGET_FPS,
+    burst_multiplier: float = 2.0,
+) -> NDArray[np.float32]:
+    win_means = _window_means(signal, window_sec=window_sec, fps=fps)
+    if len(win_means) == 0:
+        return np.zeros(4, dtype=np.float32)
+
+    top_count = min(3, len(win_means))
+    top3_window_mean = float(np.mean(np.sort(win_means)[-top_count:]))
+    baseline = float(np.median(signal))
+    threshold = max(baseline * burst_multiplier, baseline + _EPS)
+    is_burst = win_means > threshold
+    return np.asarray(
+        [
+            float(np.max(win_means)),
+            top3_window_mean,
+            float(_count_true_runs(is_burst)),
+            float(is_burst.mean()),
+        ],
+        dtype=np.float32,
+    )
+
+
+def _window_means(
+    signal: NDArray[np.float32],
+    *,
+    window_sec: float,
+    fps: int = _DEFAULT_TARGET_FPS,
+) -> NDArray[np.float32]:
+    window_size = _window_size(signal, window_sec=window_sec, fps=fps)
+    count = len(signal) - window_size + 1
+    if count <= 0:
+        return np.zeros(0, dtype=np.float32)
+    return np.asarray(
+        [signal[i : i + window_size].mean() for i in range(count)],
+        dtype=np.float32,
+    )
+
+
+def _window_size(
+    signal: NDArray[np.float32],
+    *,
+    window_sec: float,
+    fps: int = _DEFAULT_TARGET_FPS,
+) -> int:
+    window_size = max(1, int(window_sec * fps))
+    return min(window_size, len(signal) - 1)
+
+
+def _count_true_runs(values: NDArray[np.bool_]) -> int:
+    runs = 0
+    in_run = False
+    for value in values:
+        if bool(value):
+            if not in_run:
+                runs += 1
+                in_run = True
+        else:
+            in_run = False
+    return runs
 
 
 def _skewness(x: NDArray[np.float32]) -> float:

@@ -41,6 +41,8 @@ dev = [
 ml = [
     # 학습/실험 전용 (GRU 등). 워커 런타임 이미지에는 포함하지 않는다.
     "torch>=2.3,<3",
+    "torchvision>=0.27.0",
+    "transformers>=4.41,<5",
 ]
 
 [build-system]

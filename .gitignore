@@ -54,6 +54,8 @@ data/review/
 data/tabular_dataset/
 data/flow_dataset/
 data/fusion_dataset/
+data/video_encoder_dataset/
+data/gcs_cache/
 # 모델 artifact는 기본 제외, 운영 연결된 flow gate RF만 추적 (816KB)
 models/*
 !models/flow_qa_rf_v2.joblib

@@ -235,6 +235,9 @@ rule 출력의 사후 보정 prior로 동작합니다. flow RF가 "static 위주
 - artifact (`models/flow_qa_rf_v2.joblib`, 816KB)는 git 추적 + Docker 이미지 포함.
   docker-compose는 게이트 기본 on (`FLOW_GATE_MODEL_PATH` 빈 값 override로 off)
 - 추론 의존성 (joblib/scikit-learn/scipy)은 main 의존성. `ml` 그룹(torch)은 학습 전용
+- v2 artifact는 legacy 42-dim feature로, v3 artifact는 burst-aware 46-dim feature로 추론합니다.
+  v3 실험(2026-06-10)은 group-kfold balanced accuracy `0.8384`로 v2 대비 보합이라
+  운영 기본 artifact는 v2를 유지합니다.
 
 ---
 
@@ -495,6 +498,33 @@ uv run python scripts/train_pose_sequence.py \
 
 Pose GRU와 별도로 tabular pose, optical flow, fusion baseline도 비교할 수 있습니다.
 
+GCS에 있는 원본 영상으로 flow dataset을 만들 때는 먼저 라벨 CSV와 GCS object를 stem 기준으로
+매칭합니다. 2026-06-10 확인 기준 버킷에는 `videos/Original/` prefix 아래 영상 452개가 있고,
+기존 라벨 파일 425행은 모두 매칭됩니다 (`static=218`, `dynamic=207`). 로컬 캐시는
+`data/gcs_cache/` 아래에 생성되며 git에 포함하지 않습니다.
+
+```bash
+uv run python scripts/cache_gcs_labeled_videos.py \
+  --labels /Users/minjoun/Workspace/projects/Hola-Climbing/labels_완료.csv \
+  --bucket hola-climbing-log-videos \
+  --prefix videos/Original/ \
+  --cache-dir data/gcs_cache/videos/original \
+  --matched-labels-out data/gcs_cache/labels_gcs_matched.csv \
+  --manifest-out data/gcs_cache/gcs_original_manifest.csv \
+  --backend gsutil
+
+# 전체 영상 캐시가 필요할 때만 실행. 다운로드 용량이 크므로 먼저 --limit 2 등으로 smoke 권장.
+uv run python scripts/cache_gcs_labeled_videos.py \
+  --labels /Users/minjoun/Workspace/projects/Hola-Climbing/labels_완료.csv \
+  --bucket hola-climbing-log-videos \
+  --prefix videos/Original/ \
+  --cache-dir data/gcs_cache/videos/original \
+  --matched-labels-out data/gcs_cache/labels_gcs_matched.csv \
+  --manifest-out data/gcs_cache/gcs_original_manifest.csv \
+  --backend gsutil \
+  --download
+```
+
 ```bash
 uv run python scripts/build_pose_tabular_dataset.py \
   --labels data/review/labels_완료_qa.csv \
@@ -503,32 +533,88 @@ uv run python scripts/build_pose_tabular_dataset.py \
   --variant normalized
 
 uv run python scripts/build_flow_dataset.py \
-  --labels data/review/labels_완료_qa.csv \
-  --videos-dir /Users/minjoun/Movies/Original \
-  --out data/flow_dataset/qa_flow
+  --labels data/gcs_cache/labels_gcs_matched.csv \
+  --videos-dir data/gcs_cache/videos/original \
+  --out data/flow_dataset/gcs_flow_v1
 
 uv run python scripts/build_fusion_dataset.py \
   --left data/tabular_dataset/qa_normalized \
-  --right data/flow_dataset/qa_flow \
+  --right data/flow_dataset/gcs_flow_v1 \
   --out data/fusion_dataset/qa_normalized_flow
 
 uv run python scripts/train_tabular_dynamic_static.py \
-  --data data/flow_dataset/qa_flow \
-  --out models/flow_qa_rf.joblib \
-  --run-name flow_qa \
+  --data data/flow_dataset/gcs_flow_v1 \
+  --out models/flow_gcs_rf_v1.joblib \
+  --run-name flow_gcs_v1 \
   --splits holdout,kfold,group-kfold
 
 uv run python scripts/build_flow_miss_review_queue.py \
-  --predictions models/reports/flow_qa_predictions.csv \
-  --out data/review/flow_miss_review_queue.csv \
+  --predictions models/reports/flow_gcs_v1_predictions.csv \
+  --out data/review/flow_gcs_v1_miss_review_queue.csv \
   --model rf \
   --split group-kfold
+
+uv run python scripts/propagate_review_decisions.py \
+  --target data/review/flow_gcs_v1_miss_review_queue.csv \
+  --source data/review/flow_miss_review_queue_normalized.csv \
+  --source data/review/dynamic_static_review_queue_complete.csv \
+  --out data/review/flow_gcs_v1_miss_review_queue.csv \
+  --summary-out data/review/flow_gcs_v1_previous_review_applied.csv
 ```
 
-2026-06-05 기준 QA 라벨 206개에서 flow-only RF가 가장 안정적입니다. `flow_qa`는
-5-fold balanced accuracy `0.8146`, group-kfold balanced accuracy `0.8247`, dynamic recall
-`0.8181`입니다. `qa_normalized + flow` fusion도 group-kfold `0.7987`로 강하지만 flow-only보다
-낮아, 첫 optional inference 후보는 flow-only로 둡니다.
+2026-06-10 기준 운영 artifact는 `flow_qa_rf_v2.joblib`입니다. QA 라벨 205개에서 v2 RF는
+group-kfold balanced accuracy `0.8381`, dynamic recall `0.8147`이고, v3(동적 낙하 trimming +
+burst-aware 46-dim feature)는 `0.8384`, dynamic recall `0.8247`로 보합입니다. v3는 회복 6건 /
+악화 6건이라 운영 기본값은 v2로 유지하고, v3 산출물은 다음 ROI flow/라벨 확장 실험의 입력으로
+둡니다.
+
+GCS 원본 425개 전체(`static=218`, `dynamic=207`)로 만든 `flow_gcs_v1`은 더 다양한/덜 정제된
+분포를 반영합니다. group-kfold 기준 RF는 balanced accuracy `0.8114`, dynamic recall `0.8159`,
+logreg는 balanced accuracy `0.8176`, dynamic recall `0.7729`입니다. 샘플 수는 늘었지만 운영 v2보다
+낮으므로 artifact 승격은 보류하고, `data/review/flow_gcs_*_miss_review_queue.csv`에서 고신뢰
+오분류를 먼저 라벨 리뷰합니다.
+
+RF 오분류 리뷰 80건을 반영한 `flow_gcs_reviewed_v1`은 419개 샘플(`static=212`, `dynamic=207`)이며
+group-kfold 기준 RF balanced accuracy `0.8378`, dynamic recall `0.8359`, static specificity
+`0.8398`입니다. 운영 v2와 balanced accuracy는 거의 같지만 static specificity가 낮아 기본 artifact
+승격은 보류합니다. reviewed 모델의 남은 새 오분류는
+`data/review/flow_gcs_reviewed_v1_miss_review_queue.csv`의 `review` 8건입니다.
+
+추가 리뷰 8건 중 2건 라벨 수정(`IMG_6755`, `IMG_6726`)을 반영한 `flow_gcs_reviewed_round2_v1`은
+419개 샘플(`static=210`, `dynamic=209`)이며 group-kfold 기준 RF balanced accuracy `0.8449`,
+dynamic recall `0.8469`, static specificity `0.8429`입니다. 운영 v2(`0.8381`)보다 balanced
+accuracy와 dynamic recall은 높지만 평가셋이 다르고 static specificity는 운영 v2(`0.8615`)가 더 높으므로
+기본 artifact 교체 전에는 static FP 비용을 함께 봐야 합니다. round2 오분류 큐의 남은 `review` 1건
+(`IMG_6881`)은 기존 dynamic 라벨 유지로 확인됐고, `flow_gcs_reviewed_round3_v1`은 round2와 동일한
+성능입니다. round3 오분류 큐는 65건 모두 기존 리뷰 결정으로 처리되어 남은 수동 리뷰가 없습니다.
+
+방향 분해 v4(`flow_gcs_v4_direction`, feature_dim 58)는 Farneback magnitude에 `vy` 시계열 통계를
+추가한 실험입니다. 동일 419개/group-kfold 기준 RF balanced accuracy `0.8377`, dynamic recall
+`0.8517`, static specificity `0.8238`로 round3 RF `0.8449`보다 낮았습니다. round3 miss 65건 중
+5건은 회복했지만 새 오답 8건이 생겼고, 고확신 miss 20건은 0건 회복했습니다. 따라서 ROI flow Task로
+바로 확장하지 않고 고확신 FN 12건 + 정분류 dynamic 30건만 ROI 진단 probe를 먼저 실행했습니다.
+probe 결과는 `models/reports/roi_flow_probe_round3_summary.json`에 있으며, pose 미검출 1건을 제외한
+41건에서 최대 효과크기 `1.4914`(`roi_mag_p95`)가 나왔습니다. 기준 `1.0`을 넘었으므로 full ROI
+flow v5 후보로 보였지만, 후속 static gate에서 결론이 뒤집혔습니다. static gate는 기존 41건을
+재사용하고 정분류 static 30건 + 고확신 FP static 8건을 추가 처리해
+`models/reports/roi_flow_probe_round3_static_gate_summary.json`에 저장했습니다. FN vs correct_static
+최대 효과크기는 `0.9725`, FN vs static_pool은 `0.8261`로 기준 `1.0` 미만이므로 Task 3 full ROI는
+보류하고 pretrained video encoder probe를 다음 후보로 둡니다.
+
+pretrained video encoder probe도 2026-06-10에 실행했습니다. `torchvision r3d_18` Kinetics-400
+frozen embedding은 single clip best `0.5777`, 4-clip mean+std best `0.6301`로 round3 flow RF
+`0.8449`보다 크게 낮았습니다. 4-clip logreg가 고확신 miss 20건 중 10건을 회복했지만 새 오답
+137건을 만들었고, flow+encoder fusion RF도 balanced accuracy `0.8065`, static specificity
+`0.7667`로 하락했습니다. 따라서 encoder artifact도 승격하지 않고 운영 기본값은 계속
+`models/flow_qa_rf_v2.joblib`입니다.
+
+2026-06-11에는 1차 encoder probe의 약점(약한 encoder, uniform sampling, 와이드샷 미크롭)을
+줄인 v2 probe를 실행했습니다. `r3d_18` + burst + person crop은 best `0.6940`, VideoMAE
+(`MCG-NJU/videomae-base-finetuned-kinetics`) + burst + crop은 best `0.6849`, DINOv2
+(`facebook/dinov2-base`, 8프레임) + burst + crop은 best `0.6135`였습니다. 세 구성 모두
+사전 기각 기준인 `0.75` 미만이고, 고확신 miss는 9~11건 회복했지만 새 오답이 103~130건으로
+훨씬 많았습니다. 따라서 frozen pretrained embedding 트랙은 MVP 경로에서 종료하고,
+정확도 보완은 fine-tuning 또는 제품 측 유보/재촬영 UX로 분리합니다.
 
 ### 추후 작업
 

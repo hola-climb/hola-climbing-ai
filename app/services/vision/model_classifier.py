@@ -9,14 +9,19 @@ from typing import Any, cast
 import numpy as np
 from numpy.typing import NDArray
 
+torch: Any | None
+nn: Any | None
+
 try:
-    import torch
-    from torch import nn
+    import torch as _torch
+    from torch import nn as _nn
 except ImportError as exc:  # pragma: no cover - exercised only without ml deps
-    torch = None  # type: ignore[assignment]
-    nn = None  # type: ignore[assignment]
+    torch = None
+    nn = None
     _TORCH_IMPORT_ERROR: ImportError | None = exc
 else:
+    torch = _torch
+    nn = _nn
     _TORCH_IMPORT_ERROR = None
 
 
@@ -32,18 +37,19 @@ def require_torch() -> Any:
 
 if nn is not None:
 
-    class PoseSequenceClassifier(nn.Module):
+    class PoseSequenceClassifier(nn.Module):  # type: ignore[misc,name-defined]
         """Small GRU binary classifier. Output logit > 0 means dynamic."""
 
         def __init__(self, input_size: int = 132, hidden_size: int = 64, num_layers: int = 1) -> None:
             super().__init__()
-            self.gru = nn.GRU(
+            nn_module = cast(Any, nn)
+            self.gru = nn_module.GRU(
                 input_size=input_size,
                 hidden_size=hidden_size,
                 num_layers=num_layers,
                 batch_first=True,
             )
-            self.head = nn.Linear(hidden_size, 1)
+            self.head = nn_module.Linear(hidden_size, 1)
 
         def forward(self, x: Any) -> Any:
             _, hidden = self.gru(x)
