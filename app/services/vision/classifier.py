@@ -33,7 +33,6 @@ from app.services.vision._landmarks import (
     LEFT_FOOT_INDEX,
     LEFT_HEEL,
     LEFT_HIP,
-    LEFT_KNEE,
     LEFT_SHOULDER,
     LEFT_WRIST,
     RIGHT_ANKLE,
@@ -41,32 +40,33 @@ from app.services.vision._landmarks import (
     RIGHT_FOOT_INDEX,
     RIGHT_HEEL,
     RIGHT_HIP,
-    RIGHT_KNEE,
     RIGHT_SHOULDER,
     RIGHT_WRIST,
-    center_of_mass_x,
     joint_angle_deg,
     mean_velocity,
     midpoint,
-    opposite_ankle,
     pelvis_y,
     stack_landmarks,
-    support_foot_index,
     velocity_xy,
 )
 from app.services.vision._thresholds import (
     COORDINATION_LIMB_MOVE_VEL,
+    COORDINATION_MIN_ACTIVE_FRAME_RATIO,
+    COORDINATION_MIN_MOVING_FEET,
+    COORDINATION_MIN_MOVING_HANDS,
     COORDINATION_MIN_MOVING_LIMBS,
+    COORDINATION_MIN_SIMULTANEOUS_FRAMES,
     COORDINATION_WINDOW_MS,
     DYNAMIC_TECHNIQUES,
     DYNO_BOTH_HANDS_OFF_VEL,
     DYNO_PELVIS_VERTICAL_VEL,
-    FLAGGING_COM_LATERAL_OFFSET,
-    FLAGGING_LEG_LATERAL_OFFSET,
+    FLAGGING_CROSSING_THRESHOLD,
+    FLAGGING_SAME_SIDE_RATIO,
     HEEL_HOOK_HEEL_ABOVE_FOOT_INDEX,
     HIGH_STEP_ANKLE_ABOVE_HIP_RATIO,
     HIGH_STEP_HAND_STATIC_VEL,
-    HOOK_FOOT_ABOVE_KNEE_RATIO,
+    HOOK_ANKLE_ABOVE_SUPPORT_DELTA,
+    HOOK_LIFTED_FOOT_RATIO,
     LOCK_OFF_ELBOW_FLEX_STD,
     LOCK_OFF_HAND_STATIC_VEL,
     LOCK_OFF_MIN_ELBOW_FLEX_DEG,
@@ -138,61 +138,64 @@ def _score_high_step(arr: NDArray[np.float32]) -> _Score:
 
 
 def _score_flagging(arr: NDArray[np.float32]) -> _Score:
-    """지지 발 기준 반대쪽 다리가 반대 방향으로 외측 확장 + 무게중심 외측 이동."""
-    support_idx = support_foot_index(arr)  # ankle index
-    opp_idx = opposite_ankle(support_idx)
+    """양발이 골반 중심선 기준 같은 쪽으로 몰린 cross-body 자세."""
+    hip_center_x = midpoint(arr, LEFT_HIP, RIGHT_HIP)[:, 0]
+    left_side = arr[:, LEFT_ANKLE, 0] - hip_center_x
+    right_side = arr[:, RIGHT_ANKLE, 0] - hip_center_x
 
-    support_x = arr[:, support_idx, 0].mean()
-    opp_x = arr[:, opp_idx, 0].mean()
-    com_x = float(center_of_mass_x(arr).mean())
-
-    # 지지 발이 left(=화면 x 작음 측)인지 right(=화면 x 큼 측)인지 일관성 가정
-    # opp ankle이 support 반대 방향으로 멀리: |opp_x - support_x|
-    leg_lateral = abs(float(opp_x - support_x))
-    # COM이 지지 발 반대 방향으로 이동했는가
-    com_lateral = abs(com_x - float(support_x))
-
-    matched = (
-        leg_lateral >= FLAGGING_LEG_LATERAL_OFFSET
-        and com_lateral >= FLAGGING_COM_LATERAL_OFFSET
+    same_left = (
+        (left_side < -FLAGGING_CROSSING_THRESHOLD)
+        & (right_side < -FLAGGING_CROSSING_THRESHOLD)
     )
+    same_right = (
+        (left_side > FLAGGING_CROSSING_THRESHOLD)
+        & (right_side > FLAGGING_CROSSING_THRESHOLD)
+    )
+    same_side_ratio = float((same_left | same_right).mean())
+    lateral_extent = float(np.mean(np.maximum(np.abs(left_side), np.abs(right_side))))
+
+    matched = same_side_ratio >= FLAGGING_SAME_SIDE_RATIO
     conf = (
-        _ratio(leg_lateral, FLAGGING_LEG_LATERAL_OFFSET * 2.0) * 0.6
-        + _ratio(com_lateral, FLAGGING_COM_LATERAL_OFFSET * 2.0) * 0.4
+        _ratio(same_side_ratio, 1.0) * 0.75
+        + _ratio(lateral_extent, FLAGGING_CROSSING_THRESHOLD * 4.0) * 0.25
     )
     return _Score("flagging", matched, conf)
 
 
 def _score_hook(arr: NDArray[np.float32], *, is_toe: bool) -> _Score:
-    """toe/heel hook 공통: 발이 무릎보다 위인 프레임 비율 + foot_index vs heel 상대 위치."""
+    """toe/heel hook 공통: 지지 발 대비 들린 발의 foot_index vs heel 상대 위치."""
     # 양쪽 발 중 더 위에 있는 발을 hook 후보로
     l_foot_y = arr[:, LEFT_ANKLE, 1]
     r_foot_y = arr[:, RIGHT_ANKLE, 1]
     use_left = float(l_foot_y.mean()) < float(r_foot_y.mean())
-    foot_y = l_foot_y if use_left else r_foot_y
-    knee_y = arr[:, LEFT_KNEE if use_left else RIGHT_KNEE, 1]
+    ankle_y = l_foot_y if use_left else r_foot_y
+    support_ankle_y = r_foot_y if use_left else l_foot_y
     foot_index_y = arr[:, LEFT_FOOT_INDEX if use_left else RIGHT_FOOT_INDEX, 1]
     heel_y = arr[:, LEFT_HEEL if use_left else RIGHT_HEEL, 1]
 
-    above_knee_ratio = float((foot_y < knee_y).mean())
+    lifted_ratio = float(
+        (ankle_y < support_ankle_y - HOOK_ANKLE_ABOVE_SUPPORT_DELTA).mean()
+    )
 
     # toe: foot_index가 heel보다 위 (foot_index_y < heel_y)
     # heel: heel이 foot_index보다 위 (heel_y < foot_index_y)
     if is_toe:
-        delta = float((heel_y - foot_index_y).mean())  # 양수면 toe
+        toe_above_heel = heel_y - foot_index_y
+        toe_above_ankle = ankle_y - foot_index_y
+        delta = float(np.maximum(toe_above_heel, toe_above_ankle).mean())
         threshold = TOE_HOOK_FOOT_INDEX_ABOVE_HEEL
         label = "toe_hook"
     else:
-        delta = float((foot_index_y - heel_y).mean())  # 양수면 heel
+        heel_above_toe = foot_index_y - heel_y
+        heel_above_ankle = ankle_y - heel_y
+        delta = float(np.maximum(heel_above_toe, heel_above_ankle).mean())
         threshold = HEEL_HOOK_HEEL_ABOVE_FOOT_INDEX
         label = "heel_hook"
 
-    matched = (
-        above_knee_ratio >= HOOK_FOOT_ABOVE_KNEE_RATIO and delta >= threshold
-    )
+    matched = lifted_ratio >= HOOK_LIFTED_FOOT_RATIO and delta >= threshold
     conf = (
-        _ratio(above_knee_ratio, 1.0) * 0.5
-        + _ratio(delta, threshold * 2.5) * 0.5
+        _ratio(lifted_ratio, 1.0) * 0.45
+        + _ratio(delta, threshold * 3.0) * 0.55
     )
     return _Score(label, matched, conf)
 
@@ -251,7 +254,7 @@ def _score_dyno(arr: NDArray[np.float32], durations_ms: NDArray[np.int64]) -> _S
 def _score_coordination(
     arr: NDArray[np.float32], timestamps_ms: NDArray[np.int64]
 ) -> _Score:
-    """짧은 시간 window 내에 4 limb 중 3개 이상이 동시에 이동."""
+    """짧은 시간 window 내에 4 limb 중 3개 이상이 지속적으로 함께 이동."""
     if arr.shape[0] < 3:
         return _Score("coordination", False, 0.0)
     # 4 limb 각각의 속도 시계열 (T-1,)
@@ -265,19 +268,43 @@ def _score_coordination(
     window_frames = max(1, int(COORDINATION_WINDOW_MS / max(1.0, frame_ms)))
 
     frame_count = moving.shape[1]
-    max_simul = 0
+    best_conf = 0.0
+    best_matched = False
     for start in range(0, max(1, frame_count - window_frames + 1)):
         end = min(frame_count, start + window_frames)
         win = moving[:, start:end]
-        # 이 윈도우 안에서 limb별로 한 번이라도 움직였는가
-        any_moved = win.any(axis=1)  # (4,)
-        simul = int(any_moved.sum())
-        if simul > max_simul:
-            max_simul = simul
+        if win.shape[1] == 0:
+            continue
 
-    matched = max_simul >= COORDINATION_MIN_MOVING_LIMBS
-    conf = _ratio(float(max_simul), 4.0)
-    return _Score("coordination", matched, conf)
+        active_ratio_by_limb = win.mean(axis=1)
+        active_limb_count = int(
+            np.sum(active_ratio_by_limb >= COORDINATION_MIN_ACTIVE_FRAME_RATIO)
+        )
+        active_by_limb = active_ratio_by_limb >= COORDINATION_MIN_ACTIVE_FRAME_RATIO
+        active_hand_count = int(np.sum(active_by_limb[:2]))
+        active_foot_count = int(np.sum(active_by_limb[2:]))
+        qualified_moving = win & active_by_limb[:, np.newaxis]
+        simultaneous_frames = int(
+            np.sum(qualified_moving.sum(axis=0) >= COORDINATION_MIN_MOVING_LIMBS)
+        )
+
+        limb_conf = _ratio(float(active_limb_count), 4.0)
+        simult_conf = _ratio(
+            float(simultaneous_frames),
+            float(max(COORDINATION_MIN_SIMULTANEOUS_FRAMES, win.shape[1])),
+        )
+        conf = limb_conf * 0.55 + simult_conf * 0.45
+        if conf > best_conf:
+            best_conf = conf
+        if (
+            active_limb_count >= COORDINATION_MIN_MOVING_LIMBS
+            and active_hand_count >= COORDINATION_MIN_MOVING_HANDS
+            and active_foot_count >= COORDINATION_MIN_MOVING_FEET
+            and simultaneous_frames >= COORDINATION_MIN_SIMULTANEOUS_FRAMES
+        ):
+            best_matched = True
+
+    return _Score("coordination", best_matched, best_conf if best_matched else 0.0)
 
 
 # --------------------------------------------------------------------
@@ -313,20 +340,7 @@ def _classify_one_segment(
         if s and s.matched and s.confidence >= MIN_CONFIDENCE_TO_EMIT:
             return s.technique, float(s.confidence), tech in DYNAMIC_TECHNIQUES
 
-    # 2) matched가 하나도 없으면 score 최대값 후보 (priority는 tiebreaker)
-    best: _Score | None = None
-    best_priority = len(TECHNIQUE_PRIORITY)
-    for tech in TECHNIQUE_PRIORITY:
-        s = scores[tech]
-        pri = TECHNIQUE_PRIORITY.index(tech)
-        if best is None or s.confidence > best.confidence or (
-            s.confidence == best.confidence and pri < best_priority
-        ):
-            best = s
-            best_priority = pri
-    if best is None or best.confidence < MIN_CONFIDENCE_TO_EMIT:
-        return None
-    return best.technique, float(best.confidence), best.technique in DYNAMIC_TECHNIQUES
+    return None
 
 
 def classify_segments(

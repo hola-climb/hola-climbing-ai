@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     worker_host: str = "0.0.0.0"
     worker_port: int = 8000
     log_level: str = "INFO"
-    model_version: str = "rule_v1"
+    model_version: str = "rule_v3"
 
     # --- Redis (Spring과 동일) ---
     redis_host: str = "localhost"

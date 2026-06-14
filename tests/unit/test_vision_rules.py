@@ -146,6 +146,109 @@ class TestClassifierSmoke:
             assert seg.technique in TECHNIQUE_LABELS
             assert 0.0 <= (seg.confidence or 0) <= 1.0
 
+    def test_neutral_tripod_stance_is_not_flagging(self) -> None:
+        """양발이 골반 양쪽에 있는 기본 자세는 flagging으로 보지 않는다."""
+        frames = _make_static_sequence(20, fps=30)
+        result = classify_segments(frames, [(0, 633)])
+
+        assert result == []
+
+    def test_cross_body_foot_position_can_be_flagging(self) -> None:
+        """한 발이 골반 중심선을 넘어 같은 쪽으로 몰리면 flagging으로 본다."""
+
+        def cross_right_foot_left(lm: np.ndarray, i: int) -> np.ndarray:
+            lm[28] = (0.42, 0.9, 0.0, 1.0)
+            lm[30] = (0.43, 0.92, 0.0, 1.0)
+            lm[32] = (0.41, 0.93, 0.0, 1.0)
+            return lm
+
+        frames = _make_static_sequence(20, fps=30, modifier=cross_right_foot_left)
+        result = classify_segments(frames, [(0, 633)])
+
+        assert any(seg.technique == "flagging" for seg in result)
+
+    def test_low_heel_hook_position_can_be_detected(self) -> None:
+        """무릎보다 낮은 훅이어도 뒤꿈치가 위로 걸린 자세는 heel_hook이다."""
+
+        def heel_hook(lm: np.ndarray, i: int) -> np.ndarray:
+            lm[27] = (0.35, 0.82, 0.0, 1.0)
+            lm[29] = (0.34, 0.76, 0.0, 1.0)
+            lm[31] = (0.36, 0.85, 0.0, 1.0)
+            return lm
+
+        frames = _make_static_sequence(20, fps=30, modifier=heel_hook)
+        result = classify_segments(frames, [(0, 633)])
+
+        assert any(seg.technique == "heel_hook" for seg in result)
+
+    def test_low_toe_hook_position_can_be_detected(self) -> None:
+        """무릎보다 낮은 훅이어도 발끝이 위로 걸린 자세는 toe_hook이다."""
+
+        def toe_hook(lm: np.ndarray, i: int) -> np.ndarray:
+            lm[27] = (0.35, 0.82, 0.0, 1.0)
+            lm[29] = (0.34, 0.86, 0.0, 1.0)
+            lm[31] = (0.36, 0.76, 0.0, 1.0)
+            return lm
+
+        frames = _make_static_sequence(20, fps=30, modifier=toe_hook)
+        result = classify_segments(frames, [(0, 633)])
+
+        assert any(seg.technique == "toe_hook" for seg in result)
+
+    def test_brief_jitter_in_static_tripod_is_not_coordination(self) -> None:
+        """정적 자세에서 limb별 1-frame 튐은 coordination으로 보지 않는다."""
+
+        def add_brief_jitter(lm: np.ndarray, i: int) -> np.ndarray:
+            if i == 3:
+                lm[15] = (0.32, 0.6, 0.0, 1.0)
+            if i == 5:
+                lm[16] = (0.68, 0.6, 0.0, 1.0)
+            if i == 7:
+                lm[27] = (0.45, 0.88, 0.0, 1.0)
+            return lm
+
+        frames = _make_static_sequence(20, fps=30, modifier=add_brief_jitter)
+        result = classify_segments(frames, [(0, 633)])
+
+        assert all(seg.technique != "coordination" for seg in result)
+        assert all(seg.is_dynamic is not True for seg in result)
+
+    def test_small_foot_lift_with_balance_hands_is_not_coordination(self) -> None:
+        """한 발을 살짝 올리고 손이 균형 보정하는 정도는 coordination이 아니다."""
+
+        def small_foot_lift(lm: np.ndarray, i: int) -> np.ndarray:
+            if 3 <= i <= 10:
+                progress = i - 2
+                foot_shift = 0.016 * progress
+                hand_shift = 0.016 * progress
+                lm[27] = (0.45, 0.9 - foot_shift, 0.0, 1.0)
+                lm[15] = (0.3 + hand_shift, 0.6, 0.0, 1.0)
+                lm[16] = (0.7 - hand_shift, 0.6, 0.0, 1.0)
+            return lm
+
+        frames = _make_static_sequence(20, fps=30, modifier=small_foot_lift)
+        result = classify_segments(frames, [(0, 633)])
+
+        assert all(seg.technique != "coordination" for seg in result)
+        assert all(seg.is_dynamic is not True for seg in result)
+
+    def test_sustained_multi_limb_motion_can_be_coordination(self) -> None:
+        """여러 limb이 같은 짧은 구간에서 지속 이동하면 coordination으로 유지한다."""
+
+        def move_three_limbs(lm: np.ndarray, i: int) -> np.ndarray:
+            if 3 <= i <= 10:
+                shift = 0.02 * (i - 2)
+                lm[15] = (0.3 + shift, 0.6, 0.0, 1.0)
+                lm[16] = (0.7 - shift, 0.6, 0.0, 1.0)
+                lm[27] = (0.45 + shift, 0.9, 0.0, 1.0)
+                lm[28] = (0.55 - shift, 0.9, 0.0, 1.0)
+            return lm
+
+        frames = _make_static_sequence(20, fps=30, modifier=move_three_limbs)
+        result = classify_segments(frames, [(0, 633)])
+
+        assert any(seg.technique == "coordination" for seg in result)
+
     def test_sequence_index_starts_at_zero_and_increments(self) -> None:
         """multi-segment 결과의 sequence_index가 0,1,2,... 순서."""
         frames = _make_static_sequence(40)

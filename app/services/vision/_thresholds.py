@@ -43,15 +43,18 @@ HIGH_STEP_HAND_STATIC_VEL: Final[float] = 0.012
 """hand 평균 속도가 이 값 미만 → '손은 정적' 조건."""
 
 # --- flagging ---
-FLAGGING_LEG_LATERAL_OFFSET: Final[float] = 0.08
-"""반대쪽 다리의 x 오프셋 (지지 발 기준 반대 방향으로 외측 이동). 정규화 좌표."""
+FLAGGING_CROSSING_THRESHOLD: Final[float] = 0.02
+"""양발이 골반 중심선 기준 같은 쪽에 있다고 판단하는 x 오프셋."""
 
-FLAGGING_COM_LATERAL_OFFSET: Final[float] = 0.04
-"""무게중심(어깨+골반 중점) x가 지지 발 기준 외측으로 얼마나 이동했는지."""
+FLAGGING_SAME_SIDE_RATIO: Final[float] = 0.5
+"""segment 중 양발이 같은 쪽으로 몰린 프레임 비율 임계."""
 
 # --- toe_hook / heel_hook ---
-HOOK_FOOT_ABOVE_KNEE_RATIO: Final[float] = 0.4
-"""segment 중 발(foot_index or heel) y가 무릎 y보다 위인 비율."""
+HOOK_ANKLE_ABOVE_SUPPORT_DELTA: Final[float] = 0.04
+"""hook 후보 발목이 반대쪽 지지 발목보다 위에 있어야 하는 y 차이."""
+
+HOOK_LIFTED_FOOT_RATIO: Final[float] = 0.4
+"""segment 중 hook 후보 발이 지지 발보다 충분히 들어올려진 프레임 비율."""
 
 TOE_HOOK_FOOT_INDEX_ABOVE_HEEL: Final[float] = 0.02
 """toe_hook: foot_index y < heel y - 임계 (발끝이 뒤꿈치보다 위)."""
@@ -88,6 +91,18 @@ COORDINATION_MIN_MOVING_LIMBS: Final[int] = 3
 
 COORDINATION_WINDOW_MS: Final[int] = 600
 """coordination 동조성 판정 시간 window."""
+
+COORDINATION_MIN_ACTIVE_FRAME_RATIO: Final[float] = 0.25
+"""window 안에서 각 limb가 움직여야 하는 최소 프레임 비율."""
+
+COORDINATION_MIN_SIMULTANEOUS_FRAMES: Final[int] = 3
+"""3개 이상 limb가 같은 프레임에서 함께 움직여야 하는 최소 프레임 수."""
+
+COORDINATION_MIN_MOVING_HANDS: Final[int] = 1
+"""coordination 후보에서 함께 움직여야 하는 최소 손 수."""
+
+COORDINATION_MIN_MOVING_FEET: Final[int] = 2
+"""coordination 후보에서 함께 움직여야 하는 최소 발 수."""
 
 # --- 분류 priority (동시 매칭 시 우선순위 결정) ---
 TECHNIQUE_PRIORITY: Final[tuple[str, ...]] = (
