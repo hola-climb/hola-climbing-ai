@@ -225,3 +225,67 @@ async def test_validation_error_goes_to_dlq(
 
     # 콜백은 호출되지 않음 (process_job 진입 전 fail)
     assert patch_orchestrator_to_fast_path["post_callback"] == []
+
+
+@pytest.mark.asyncio
+async def test_callback_failure_goes_to_dlq_and_acks(
+    redis_backend: dict[str, Any],
+    redis_client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Spring callback 4xx는 worker DLQ로 이동하고 PEL에 남지 않는다."""
+    import app.workers.stream_consumer as consumer_module
+    from app.core.config import get_settings
+    from app.core.errors import AnalysisException, AnalysisFailureReason
+    from app.infra.redis_bus import ensure_consumer_group
+
+    s = get_settings()
+    stream_key = s.redis_stream_key
+    group = s.redis_consumer_group
+    dlq_key = s.redis_dlq_key
+
+    await ensure_consumer_group(stream_key, group)
+    await _xadd_request(
+        redis_client,
+        stream_key,
+        {
+            "videoId": "42",
+            "gcsPath": "videos/uploads/test.mp4",
+            "callbackUrl": "http://localhost:8080/api/analysis/videos/42",
+        },
+    )
+
+    async def _callback_fails(_request: Any) -> None:
+        raise AnalysisException(
+            AnalysisFailureReason.CALLBACK_FAILED,
+            "callback 4xx: http 401",
+        )
+
+    monkeypatch.setattr(consumer_module, "process_job", _callback_fails)
+
+    task = asyncio.create_task(consumer_module.run_consumer(s))
+    try:
+        for _ in range(50):
+            await asyncio.sleep(0.1)
+            if await redis_client.xlen(dlq_key) >= 1:
+                break
+    finally:
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=2.0)
+        except (TimeoutError, asyncio.CancelledError):
+            pass
+        except Exception:
+            pass
+
+    dlq_len = await redis_client.xlen(dlq_key)
+    assert dlq_len >= 1, "callback failure did not reach DLQ"
+
+    pending = await redis_client.xpending(stream_key, group)
+    if isinstance(pending, dict):
+        pending_count = int(pending.get("pending", 0))
+    elif isinstance(pending, (list, tuple)) and pending:
+        pending_count = int(pending[0])
+    else:
+        pending_count = 0
+    assert pending_count == 0, f"PEL still has {pending_count} pending messages"

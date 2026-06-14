@@ -122,7 +122,7 @@ async def process_job(request: StreamRequest) -> None:
             failure_msg = exc.message
             logger.error(
                 "download failed",
-                extra={"video_id": video_id, "reason": exc.reason.value, "msg": exc.message},
+                extra={"video_id": video_id, "reason": exc.reason.value, "error_message": exc.message},
             )
             raise
 
@@ -143,7 +143,7 @@ async def process_job(request: StreamRequest) -> None:
             failure_msg = exc.message
             logger.error(
                 "vision pipeline failed",
-                extra={"video_id": video_id, "reason": exc.reason.value, "msg": exc.message},
+                extra={"video_id": video_id, "reason": exc.reason.value, "error_message": exc.message},
             )
             raise
         except Exception as exc:
@@ -217,7 +217,7 @@ async def process_job(request: StreamRequest) -> None:
                 extra={
                     "video_id": video_id,
                     "reason": (failure_reason or exc.reason).value,
-                    "msg": failure_msg or exc.message,
+                    "error_message": failure_msg or exc.message,
                 },
             )
         except AnalysisException as cb_exc:

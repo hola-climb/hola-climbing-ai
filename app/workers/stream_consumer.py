@@ -95,7 +95,7 @@ async def _handle_one(
         # process_job 내부에서 failed 콜백조차 실패한 경우 — dead-letter
         logger.error(
             "process_job raised (callback failed) → dead-letter",
-            extra={"msg_id": msg_id, "reason": exc.reason.value, "msg": exc.message},
+            extra={"msg_id": msg_id, "reason": exc.reason.value, "error_message": exc.message},
         )
         await xadd_dead_letter(
             {
