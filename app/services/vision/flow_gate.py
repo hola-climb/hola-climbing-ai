@@ -2,8 +2,7 @@
 
 flow-only RF (group-kfold balanced accuracy 0.8381, 2026-06-10 재학습)가
 영상 전체의 dynamic/static 경향을 판정하고, 그 판정을 rule 기반 segment
-출력의 사후 보정 prior로 사용한다. 콜백 계약(AnalysisIngestRequest)은
-변경하지 않는다.
+출력의 사후 보정 prior 및 callback top-level `is_dynamic` 산출에 사용한다.
 
 정책 — 보수적 앙상블. 두 신호가 모두 약할 때만 개입한다:
 

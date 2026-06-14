@@ -106,7 +106,17 @@ class TestAnalysisIngestRequest:
         )
         data = json.loads(body.model_dump_json())
         # Spring AnalysisIngestRequest 필드명과 1:1 매칭
-        assert set(data.keys()) == {"status", "model_version", "segments"}
+        assert set(data.keys()) == {
+            "status",
+            "model_version",
+            "segments",
+            "techniques",
+            "is_dynamic",
+            "dynamic_probability",
+        }
+        assert data["techniques"] == ["high_step"]
+        assert data["is_dynamic"] is None
+        assert data["dynamic_probability"] is None
         seg = data["segments"][0]
         assert set(seg.keys()) == {
             "sequence_index",
@@ -131,6 +141,9 @@ class TestAnalysisIngestRequest:
         data = json.loads(body.model_dump_json())
         assert data["status"] == "failed"
         assert data["segments"] == []
+        assert data["techniques"] == []
+        assert data["is_dynamic"] is None
+        assert data["dynamic_probability"] is None
 
     def test_model_version_nullable(self) -> None:
         body = AnalysisIngestRequest(status="done")
@@ -139,6 +152,47 @@ class TestAnalysisIngestRequest:
         # Spring 측 record는 null 허용이므로 호환.
         assert data["model_version"] is None
         assert data["segments"] == []
+        assert data["techniques"] == []
+        assert data["is_dynamic"] is None
+        assert data["dynamic_probability"] is None
+
+    def test_techniques_are_deduped_from_segments_in_canonical_order(self) -> None:
+        body = AnalysisIngestRequest(
+            status="done",
+            techniques=["dyno"],
+            segments=[
+                AnalysisSegmentPayload(sequence_index=0, technique="coordination"),
+                AnalysisSegmentPayload(sequence_index=1, technique="high_step"),
+                AnalysisSegmentPayload(sequence_index=2, technique="dyno"),
+                AnalysisSegmentPayload(sequence_index=3, technique="high_step"),
+                AnalysisSegmentPayload(sequence_index=4, technique="heel_hook"),
+            ],
+        )
+
+        data = json.loads(body.model_dump_json())
+        assert data["techniques"] == [
+            "high_step",
+            "heel_hook",
+            "dyno",
+            "coordination",
+        ]
+
+    def test_video_level_dynamic_fields_are_nullable_or_flow_probability(self) -> None:
+        body = AnalysisIngestRequest(
+            status="done",
+            is_dynamic=True,
+            dynamic_probability=0.5,
+            segments=[],
+        )
+        data = json.loads(body.model_dump_json())
+        assert data["is_dynamic"] is True
+        assert data["dynamic_probability"] == 0.5
+        with pytest.raises(ValidationError):
+            AnalysisIngestRequest(
+                status="done",
+                dynamic_probability=1.01,
+                segments=[],
+            )
 
 
 class TestAnalysisSegmentPayload:

@@ -166,6 +166,9 @@ async def test_consumer_processes_xadded_message(
     assert cb["body"]["model_version"] == s.model_version
     assert len(cb["body"]["segments"]) == 1
     assert cb["body"]["segments"][0]["technique"] == "high_step"
+    assert cb["body"]["techniques"] == ["high_step"]
+    assert cb["body"]["is_dynamic"] is None
+    assert cb["body"]["dynamic_probability"] is None
 
     # 5) PEL이 비어있는지 확인 (ACK 완료)
     pending = await redis_client.xpending(stream_key, group)

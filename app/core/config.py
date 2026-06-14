@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     flow_gate_model_path: str | None = None
     flow_gate_static_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
     flow_gate_dynamic_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
+    flow_gate_label_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
     flow_gate_demote_confidence: float = Field(default=0.55, ge=0.0, le=1.0)
     flow_gate_version_suffix: str = "flow_rf_v2"
 

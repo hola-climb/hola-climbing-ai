@@ -11,7 +11,7 @@ pipeline-engineer 구현 영역.
   6. PROCESSING("포즈 추정 완료") publish
   7. Segmentation + technique classification
   8. PROCESSING("기술 분류 완료, 결과 전송 중") publish
-  9. POST {callback_url} with AnalysisIngestRequest(status="done", segments=[...])
+  9. POST {callback_url} with AnalysisIngestRequest(status="done", segments=[...], techniques=[...])
   10. 예외 발생 시: AnalysisIngestRequest(status="failed", segments=[]) 콜백
 
 설계:
@@ -109,6 +109,8 @@ async def process_job(request: StreamRequest) -> None:
     failure_reason: AnalysisFailureReason | None = None
     failure_msg: str | None = None
     segments_out: list[AnalysisSegmentPayload] = []
+    video_is_dynamic: bool | None = None
+    dynamic_probability: float | None = None
 
     try:
         # 1. 분석 시작
@@ -170,11 +172,14 @@ async def process_job(request: StreamRequest) -> None:
                     demote_confidence=s.flow_gate_demote_confidence,
                 )
                 model_version = f"{s.model_version}+{s.flow_gate_version_suffix}"
+                dynamic_probability = prob_dynamic
+                video_is_dynamic = prob_dynamic >= s.flow_gate_label_threshold
                 logger.info(
                     "flow gate applied",
                     extra={
                         "video_id": video_id,
                         "prob_dynamic": round(prob_dynamic, 4),
+                        "is_dynamic": video_is_dynamic,
                         "segments": len(segments_out),
                     },
                 )
@@ -192,6 +197,8 @@ async def process_job(request: StreamRequest) -> None:
             status="done",
             model_version=model_version,
             segments=segments_out,
+            is_dynamic=video_is_dynamic,
+            dynamic_probability=dynamic_probability,
         )
         await post_callback(callback_url, done_body)
         logger.info(

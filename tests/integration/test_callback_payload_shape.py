@@ -19,7 +19,14 @@ from app.services.callback.client import post_callback  # noqa: E402
 URL = "http://test-spring/api/analysis/videos/42"
 
 # Spring AnalysisIngestRequest record 필드 (Jackson SNAKE_CASE 변환 후)
-SPRING_INGEST_FIELDS = {"status", "model_version", "segments"}
+SPRING_INGEST_FIELDS = {
+    "status",
+    "model_version",
+    "segments",
+    "techniques",
+    "is_dynamic",
+    "dynamic_probability",
+}
 SPRING_SEGMENT_FIELDS = {
     "sequence_index",
     "start_time_ms",
@@ -46,6 +53,8 @@ async def test_done_callback_matches_spring_shape() -> None:
     body = AnalysisIngestRequest(
         status="done",
         model_version="rule_v1",
+        is_dynamic=True,
+        dynamic_probability=0.84,
         segments=[
             AnalysisSegmentPayload(
                 sequence_index=0,
@@ -73,6 +82,11 @@ async def test_done_callback_matches_spring_shape() -> None:
 
     # 2) status는 "done"|"failed"만
     assert sent["status"] in {"done", "failed"}
+    assert sent["techniques"] == ["lock_off", "dyno"]
+    assert sent["is_dynamic"] is True
+    assert sent["dynamic_probability"] == 0.84
+    assert "dynamicProbability" not in sent
+    assert "isDynamic" not in sent
 
     # 3) segments[]의 각 필드 set
     for seg in sent["segments"]:
@@ -108,6 +122,9 @@ async def test_failed_callback_shape() -> None:
     assert sent["status"] == "failed"
     assert sent["segments"] == []
     assert sent["model_version"] == "rule_v1"
+    assert sent["techniques"] == []
+    assert sent["is_dynamic"] is None
+    assert sent["dynamic_probability"] is None
 
 
 @respx.mock

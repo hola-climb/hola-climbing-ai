@@ -166,6 +166,9 @@ async def test_callback_body_serialization_is_snake_case(
     assert body["status"] == "done"
     assert body["model_version"] == "rule_v1"
     assert "segments" in body
+    assert body["techniques"] == ["high_step"]
+    assert body["is_dynamic"] is None
+    assert body["dynamic_probability"] is None
     seg = body["segments"][0]
     assert seg["sequence_index"] == 0
     assert seg["start_time_ms"] == 0

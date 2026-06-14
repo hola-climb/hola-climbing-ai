@@ -8,9 +8,25 @@ POST {callbackUrl} body로 사용.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Final, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+CANONICAL_TECHNIQUE_ORDER: Final[tuple[str, ...]] = (
+    "high_step",
+    "flagging",
+    "toe_hook",
+    "heel_hook",
+    "lock_off",
+    "dyno",
+    "coordination",
+)
+
+
+def derive_techniques(segments: list[AnalysisSegmentPayload]) -> list[str]:
+    """segments에 등장한 기술을 영상 단위 canonical order로 중복 제거."""
+    present = {segment.technique for segment in segments}
+    return [technique for technique in CANONICAL_TECHNIQUE_ORDER if technique in present]
 
 
 class AnalysisSegmentPayload(BaseModel):
@@ -38,3 +54,11 @@ class AnalysisIngestRequest(BaseModel):
     status: Literal["done", "failed"]
     model_version: str | None = None
     segments: list[AnalysisSegmentPayload] = Field(default_factory=list)
+    techniques: list[str] = Field(default_factory=list)
+    is_dynamic: bool | None = None
+    dynamic_probability: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def derive_video_level_techniques(self) -> Self:
+        self.techniques = derive_techniques(self.segments)
+        return self
