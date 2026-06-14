@@ -62,8 +62,8 @@ class Settings(BaseSettings):
     mp_task_model_path: str | None = "models/mediapipe/pose_landmarker_lite.task"
     frame_target_fps: int = Field(default=15, ge=1, le=60)
 
-    # --- Flow gate (optional ML inference, None = off) ---
-    flow_gate_model_path: str | None = None
+    # --- Flow gate (optional ML inference, empty string = off) ---
+    flow_gate_model_path: str | None = "models/flow_qa_rf_v2.joblib"
     flow_gate_static_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
     flow_gate_dynamic_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     flow_gate_label_threshold: float = Field(default=0.50, ge=0.0, le=1.0)

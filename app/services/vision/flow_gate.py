@@ -14,7 +14,7 @@ flow-only RF (group-kfold balanced accuracy 0.8381, 2026-06-10 재학습)가
 - prob_dynamic > flow_gate_dynamic_threshold: 개입 없음 (segment 생성 안 함).
 - 그 외 (uncertain 구간): 개입 없음.
 
-FLOW_GATE_MODEL_PATH 미설정 시 본 모듈은 호출되지 않는다. 모델 로딩·추론
+FLOW_GATE_MODEL_PATH 빈 값 설정 시 본 모듈은 호출되지 않는다. 모델 로딩·추론
 실패는 호출자(orchestrator)가 catch하여 rule 출력 그대로 fallback한다.
 sklearn/scipy는 optional `ml` 그룹 의존성이므로 모든 import는 lazy.
 

@@ -218,7 +218,7 @@ curl http://localhost:8000/health/ready  # readiness (Redis/GCS)
 
 | 변수 | 기본값 | 필수 | 설명 |
 |------|--------|------|------|
-| `FLOW_GATE_MODEL_PATH` | (빈 값 = off) | no | flow RF artifact 경로 (예: `models/flow_qa_rf_v2.joblib`) |
+| `FLOW_GATE_MODEL_PATH` | `models/flow_qa_rf_v2.joblib` | no | flow RF artifact 경로. 빈 값으로 명시하면 off |
 | `FLOW_GATE_STATIC_THRESHOLD` | `0.30` | no | prob_dynamic이 이 값 미만이면 static 확신 → 보정 발동 |
 | `FLOW_GATE_DYNAMIC_THRESHOLD` | `0.70` | no | 이 값 초과면 dynamic 확신 (현재 개입 없음, 예약) |
 | `FLOW_GATE_LABEL_THRESHOLD` | `0.50` | no | callback top-level `is_dynamic` 판정 기준 (`prob_dynamic >= threshold`) |
@@ -237,7 +237,7 @@ rule 출력의 사후 보정 prior로 동작합니다. flow RF가 "static 위주
 - 추론 비용: 영상당 약 +7~11초 (Farneback optical flow 전체 패스)
 - 모델 로딩/추론 실패 시 rule 출력으로 자동 fallback (분석 실패 아님)
 - artifact (`models/flow_qa_rf_v2.joblib`, 816KB)는 git 추적 + Docker 이미지 포함.
-  docker-compose는 게이트 기본 on (`FLOW_GATE_MODEL_PATH` 빈 값 override로 off)
+  기본 설정과 docker-compose 모두 게이트 on (`FLOW_GATE_MODEL_PATH` 빈 값 override로 off)
 - 추론 의존성 (joblib/scikit-learn/scipy)은 main 의존성. `ml` 그룹(torch)은 학습 전용
 - v2 artifact는 legacy 42-dim feature로, v3 artifact는 burst-aware 46-dim feature로 추론합니다.
   v3 실험(2026-06-10)은 group-kfold balanced accuracy `0.8384`로 v2 대비 보합이라

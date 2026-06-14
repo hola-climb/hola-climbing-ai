@@ -46,6 +46,13 @@ def stream_request() -> StreamRequest:
     )
 
 
+def test_flow_gate_model_path_defaults_to_operational_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FLOW_GATE_MODEL_PATH", raising=False)
+    get_settings.cache_clear()
+
+    assert get_settings().flow_gate_model_path == "models/flow_qa_rf_v2.joblib"
+
+
 async def _run_job_and_capture_body(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
