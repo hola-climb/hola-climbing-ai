@@ -1,0 +1,59 @@
+services:
+  ai-worker:
+    image: ${AI_WORKER_IMAGE}
+    container_name: hola-ai-worker
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_STREAM_KEY: ${REDIS_STREAM_KEY:-analysis:requests}
+      REDIS_CONSUMER_GROUP: ${REDIS_CONSUMER_GROUP:-hola-ai-worker}
+      REDIS_CONSUMER_NAME: ${REDIS_CONSUMER_NAME:-worker-1}
+      REDIS_PROGRESS_CHANNEL: ${REDIS_PROGRESS_CHANNEL:-analysis:progress}
+      REDIS_BLOCK_MS: ${REDIS_BLOCK_MS:-5000}
+      REDIS_DLQ_KEY: ${REDIS_DLQ_KEY:-analysis:requests:dlq}
+      REDIS_PENDING_MIN_IDLE_MS: ${REDIS_PENDING_MIN_IDLE_MS:-60000}
+      GCS_BUCKET: ${GCS_BUCKET:-hola-climbing-log-videos}
+      GCS_DOWNLOAD_DIR: ${GCS_DOWNLOAD_DIR:-/tmp/hola-videos}
+      AI_CALLBACK_SECRET: ${AI_CALLBACK_SECRET}
+      CALLBACK_TIMEOUT_SECONDS: ${CALLBACK_TIMEOUT_SECONDS:-10}
+      CALLBACK_MAX_RETRIES: ${CALLBACK_MAX_RETRIES:-3}
+      CALLBACK_RETRY_INITIAL_SECONDS: ${CALLBACK_RETRY_INITIAL_SECONDS:-1}
+      WORKER_HOST: ${WORKER_HOST:-0.0.0.0}
+      WORKER_PORT: ${WORKER_PORT:-8000}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MODEL_VERSION: ${MODEL_VERSION:-rule_v3}
+      MP_MODEL_COMPLEXITY: ${MP_MODEL_COMPLEXITY:-1}
+      MP_MIN_DETECTION_CONFIDENCE: ${MP_MIN_DETECTION_CONFIDENCE:-0.5}
+      MP_TASK_MODEL_PATH: ${MP_TASK_MODEL_PATH:-models/mediapipe/pose_landmarker_lite.task}
+      FRAME_TARGET_FPS: ${FRAME_TARGET_FPS:-15}
+      FLOW_GATE_MODEL_PATH: ${FLOW_GATE_MODEL_PATH:-models/flow_qa_rf_v2.joblib}
+      FLOW_GATE_STATIC_THRESHOLD: ${FLOW_GATE_STATIC_THRESHOLD:-0.30}
+      FLOW_GATE_DYNAMIC_THRESHOLD: ${FLOW_GATE_DYNAMIC_THRESHOLD:-0.70}
+      FLOW_GATE_LABEL_THRESHOLD: ${FLOW_GATE_LABEL_THRESHOLD:-0.50}
+      FLOW_GATE_DEMOTE_CONFIDENCE: ${FLOW_GATE_DEMOTE_CONFIDENCE:-0.55}
+      FLOW_GATE_VERSION_SUFFIX: ${FLOW_GATE_VERSION_SUFFIX:-flow_rf_v2}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${WORKER_PORT:-8000}:8000"
+    volumes:
+      - worker_tmp:/tmp/hola-videos
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  worker_tmp:

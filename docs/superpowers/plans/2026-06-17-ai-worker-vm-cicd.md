@@ -100,8 +100,6 @@ services:
     container_name: hola-ai-worker
     platform: linux/amd64
     restart: unless-stopped
-    env_file:
-      - .env.vm
     environment:
       REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
       REDIS_PORT: ${REDIS_PORT:-6379}
@@ -372,6 +370,7 @@ jobs:
             --tunnel-through-iap \
             --quiet \
             deploy/vm/docker-compose.yml \
+            deploy/vm/.env.vm.example \
             deploy/vm/deploy-ai-worker.sh \
             "${{ vars.AI_VM_NAME }}:${{ vars.AI_VM_DEPLOY_DIR }}/"
 
@@ -432,7 +431,6 @@ The section must explicitly tell the user to fill only:
 ```text
 REDIS_PASSWORD
 AI_CALLBACK_SECRET
-AI_WORKER_IMAGE
 ```
 
 It must also include `gh variable set` commands for non-secret repository variables and a note that no production secret should be committed.
