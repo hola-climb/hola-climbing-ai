@@ -102,6 +102,10 @@ gh variable set AI_VM_NAME \
   --repo hola-climb/hola-climbing-ai \
   --body hola-climbing-server
 
+gh variable set AI_VM_USER \
+  --repo hola-climb/hola-climbing-ai \
+  --body minjoun
+
 gh variable set AI_VM_ZONE \
   --repo hola-climb/hola-climbing-ai \
   --body asia-northeast3-a
@@ -129,8 +133,18 @@ The WIF service account used by GitHub Actions needs:
 
 ```text
 roles/artifactregistry.writer
-roles/compute.instanceAdmin.v1 or narrower compute SSH/scp permissions
+projects/hola-climbing-log/roles/githubActionsVmSshDeploy
 roles/iap.tunnelResourceAccessor when --tunnel-through-iap is used
+```
+
+`githubActionsVmSshDeploy` is a narrow custom role with:
+
+```text
+compute.instances.get
+compute.instances.setMetadata
+compute.projects.get
+compute.projects.setCommonInstanceMetadata
+compute.zones.get
 ```
 
 The VM runtime service account needs:

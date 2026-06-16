@@ -15,6 +15,7 @@ concurrency:
 
 env:
   IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPOSITORY }}/hola-ai-worker:${{ github.sha }}
+  AI_VM_SSH_TARGET: ${{ vars.AI_VM_USER || 'minjoun' }}@${{ vars.AI_VM_NAME }}
 
 jobs:
   test:
@@ -75,9 +76,10 @@ jobs:
 
       - name: Ensure VM deploy directory
         run: |
-          gcloud compute ssh "${{ vars.AI_VM_NAME }}" \
+          gcloud compute ssh "$AI_VM_SSH_TARGET" \
             --zone "${{ vars.AI_VM_ZONE }}" \
             --tunnel-through-iap \
+            --ssh-key-expire-after=10m \
             --quiet \
             --command "mkdir -p '${{ vars.AI_VM_DEPLOY_DIR }}'"
 
@@ -86,16 +88,18 @@ jobs:
           gcloud compute scp \
             --zone "${{ vars.AI_VM_ZONE }}" \
             --tunnel-through-iap \
+            --ssh-key-expire-after=10m \
             --quiet \
             deploy/vm/docker-compose.yml \
             deploy/vm/.env.vm.example \
             deploy/vm/deploy-ai-worker.sh \
-            "${{ vars.AI_VM_NAME }}:${{ vars.AI_VM_DEPLOY_DIR }}/"
+            "$AI_VM_SSH_TARGET:${{ vars.AI_VM_DEPLOY_DIR }}/"
 
       - name: Roll out AI Worker
         run: |
-          gcloud compute ssh "${{ vars.AI_VM_NAME }}" \
+          gcloud compute ssh "$AI_VM_SSH_TARGET" \
             --zone "${{ vars.AI_VM_ZONE }}" \
             --tunnel-through-iap \
+            --ssh-key-expire-after=10m \
             --quiet \
             --command "chmod +x '${{ vars.AI_VM_DEPLOY_DIR }}/deploy-ai-worker.sh' && '${{ vars.AI_VM_DEPLOY_DIR }}/deploy-ai-worker.sh' '$IMAGE'"
