@@ -191,7 +191,7 @@ WIF_PROVIDER=same value as the existing backend Cloud Run deploy workflow
 WIF_SERVICE_ACCOUNT=same value as the existing backend Cloud Run deploy workflow
 AI_VM_NAME=hola-climbing-server
 AI_VM_ZONE=asia-northeast3-a
-AI_VM_DEPLOY_DIR=/home/deploy/hola-ai
+AI_VM_DEPLOY_DIR=/home/minjoun/hola-ai
 ```
 
 If the VM deploy user or path differs, only `AI_VM_DEPLOY_DIR` and the compute SSH target need to change.

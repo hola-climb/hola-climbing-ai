@@ -41,13 +41,13 @@ cd /Users/minjoun/Workspace/projects/Hola-Climbing/hola-climbing-ai
 gcloud compute ssh hola-climbing-server \
   --zone asia-northeast3-a \
   --tunnel-through-iap \
-  --command "mkdir -p /home/deploy/hola-ai"
+  --command "mkdir -p /home/minjoun/hola-ai"
 
 gcloud compute scp \
   --zone asia-northeast3-a \
   --tunnel-through-iap \
   deploy/vm/.env.vm.example \
-  hola-climbing-server:/home/deploy/hola-ai/.env.vm.example
+  hola-climbing-server:/home/minjoun/hola-ai/.env.vm.example
 
 gcloud compute ssh hola-climbing-server \
   --zone asia-northeast3-a \
@@ -57,7 +57,7 @@ gcloud compute ssh hola-climbing-server \
 Inside the VM SSH session:
 
 ```bash
-cd /home/deploy/hola-ai
+cd /home/minjoun/hola-ai
 cp -n .env.vm.example .env.vm
 chmod 600 .env.vm
 nano .env.vm
@@ -108,7 +108,7 @@ gh variable set AI_VM_ZONE \
 
 gh variable set AI_VM_DEPLOY_DIR \
   --repo hola-climb/hola-climbing-ai \
-  --body /home/deploy/hola-ai
+  --body /home/minjoun/hola-ai
 ```
 
 Copy Workload Identity Federation values from the backend repository:
@@ -149,7 +149,7 @@ metadata credentials through ADC.
 After `.env.vm` exists on the VM, a manual rollout is:
 
 ```bash
-cd /home/deploy/hola-ai
+cd /home/minjoun/hola-ai
 ./deploy-ai-worker.sh asia-northeast3-docker.pkg.dev/hola-climbing-log/hola-climb/hola-ai-worker:GIT_SHA
 ```
 
@@ -169,7 +169,7 @@ It does not recreate PostgreSQL or Redis.
 Run on the VM:
 
 ```bash
-cd /home/deploy/hola-ai
+cd /home/minjoun/hola-ai
 docker compose --env-file .env.vm -f docker-compose.yml ps ai-worker
 docker compose --env-file .env.vm -f docker-compose.yml logs --tail=100 ai-worker
 curl -i http://127.0.0.1:8000/health
@@ -205,7 +205,7 @@ XLEN analysis:requests:dlq
 Rollback is image-based. Pick a previous image tag and run:
 
 ```bash
-cd /home/deploy/hola-ai
+cd /home/minjoun/hola-ai
 ./deploy-ai-worker.sh asia-northeast3-docker.pkg.dev/hola-climbing-log/hola-climb/hola-ai-worker:PREVIOUS_GIT_SHA
 ```
 
@@ -223,7 +223,7 @@ gcloud artifacts docker tags list \
 ### `.env.vm` missing
 
 ```bash
-cd /home/deploy/hola-ai
+cd /home/minjoun/hola-ai
 cp -n .env.vm.example .env.vm
 chmod 600 .env.vm
 nano .env.vm

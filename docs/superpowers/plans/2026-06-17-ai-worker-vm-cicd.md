@@ -418,8 +418,8 @@ gcloud compute ssh hola-climbing-server \
   --zone asia-northeast3-a \
   --tunnel-through-iap
 
-mkdir -p /home/deploy/hola-ai
-cd /home/deploy/hola-ai
+mkdir -p /home/minjoun/hola-ai
+cd /home/minjoun/hola-ai
 cp .env.vm.example .env.vm
 chmod 600 .env.vm
 
