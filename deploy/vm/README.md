@@ -154,6 +154,10 @@ Artifact Registry read access
 GCS read access for hola-climbing-log-videos
 ```
 
+The VM subnet must also provide outbound access to Google services. The current VM has no
+external IP, so `privateIpGoogleAccess` is enabled on the `asia-northeast3/default` subnet
+to allow Docker pulls from Artifact Registry without adding a public VM IP.
+
 If the VM can already pull images and the worker readiness can access GCS, no extra runtime
 credential file is needed. The Python GCS client inside the container can use Compute Engine
 metadata credentials through ADC.
