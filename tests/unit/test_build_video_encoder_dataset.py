@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import cv2
 import numpy as np
+import pytest
 
 from scripts.build_video_encoder_dataset import (
     build_video_encoder_dataset,
@@ -145,7 +146,7 @@ def test_make_person_crop_fn_falls_back_to_previous_box() -> None:
 
 
 def test_make_videomae_embedding_fn_mean_pools_hidden_state() -> None:
-    import torch
+    torch = pytest.importorskip("torch")
 
     class FakeProcessor:
         def __call__(self, frames: list[np.ndarray], *, return_tensors: str) -> dict[str, object]:
@@ -179,7 +180,7 @@ def test_make_videomae_embedding_fn_mean_pools_hidden_state() -> None:
 
 
 def test_make_dinov2_embedding_fn_mean_pools_frame_outputs() -> None:
-    import torch
+    torch = pytest.importorskip("torch")
 
     class FakeProcessor:
         def __call__(self, *, images: list[np.ndarray], return_tensors: str) -> dict[str, object]:
