@@ -47,10 +47,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # system deps — MediaPipe / OpenCV 런타임 라이브러리
 # - ffmpeg: 영상 코덱 디코딩
 # - libgl1, libglib2.0-0: OpenCV/MediaPipe 공용
+# - libgles2, libegl1: MediaPipe Tasks native runtime
 # - ca-certificates: TLS (GCS, Spring 콜백)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         libgl1 \
+        libgles2 \
+        libegl1 \
         libglib2.0-0 \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
