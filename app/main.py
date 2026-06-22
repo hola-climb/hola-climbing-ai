@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
@@ -42,23 +42,35 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         extra={
             "consumer_group": settings.redis_consumer_group,
             "consumer_name": settings.redis_consumer_name,
+            "worker_concurrency": settings.worker_concurrency,
             "stream_key": settings.redis_stream_key,
         },
     )
 
-    consumer_task = asyncio.create_task(run_consumer(settings), name="stream-consumer")
+    consumer_tasks = [
+        asyncio.create_task(
+            run_consumer(
+                settings,
+                consumer_slot=slot if settings.worker_concurrency > 1 else None,
+            ),
+            name=f"stream-consumer-{slot}",
+        )
+        for slot in range(1, settings.worker_concurrency + 1)
+    ]
 
     try:
         yield
     finally:
         logger.info("shutting down hola-climbing-ai worker")
-        consumer_task.cancel()
-        try:
-            await consumer_task
-        except asyncio.CancelledError:
-            logger.info("consumer task cancelled cleanly")
-        except Exception:
-            logger.exception("consumer task raised during shutdown")
+        for task in consumer_tasks:
+            task.cancel()
+        for task in consumer_tasks:
+            with suppress(asyncio.CancelledError):
+                try:
+                    await task
+                except Exception:
+                    logger.exception("consumer task raised during shutdown")
+        logger.info("consumer tasks cancelled cleanly", extra={"count": len(consumer_tasks)})
         await close_redis()
 
 

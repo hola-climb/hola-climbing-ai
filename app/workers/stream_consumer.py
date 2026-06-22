@@ -51,13 +51,14 @@ from app.services.pipeline.orchestrator import process_job
 logger = logging.getLogger(__name__)
 
 
-def _resolve_consumer_name(settings: Settings) -> str:
-    """기본 consumer 이름이 `worker-1`이면 hostname/pid로 고유화."""
+def _resolve_consumer_name(settings: Settings, consumer_slot: int | None = None) -> str:
+    """기본 consumer 이름이 `worker-1`이면 hostname/pid/slot으로 고유화."""
     base = settings.redis_consumer_name
     if base and base != "worker-1":
-        return base
+        return base if consumer_slot is None else f"{base}-{consumer_slot}"
     host = socket.gethostname()
-    return f"worker-{host}-{os.getpid()}"
+    name = f"worker-{host}-{os.getpid()}"
+    return name if consumer_slot is None else f"{name}-{consumer_slot}"
 
 
 async def _handle_one(
@@ -125,11 +126,12 @@ async def _handle_one(
         await xack(stream_key, group, msg_id)
 
 
-async def run_consumer(settings: Settings) -> None:
+async def run_consumer(settings: Settings, consumer_slot: int | None = None) -> None:
     """장기 실행 컨슈머 진입점. lifespan에서 asyncio.create_task로 spawn.
 
     Args:
         settings: Settings 인스턴스.
+        consumer_slot: 병렬 실행 시 consumer 이름 suffix. 단일 실행이면 None.
 
     Cancellation:
         asyncio.CancelledError를 catch하여 graceful shutdown.
@@ -137,11 +139,11 @@ async def run_consumer(settings: Settings) -> None:
     """
     stream_key = settings.redis_stream_key
     group = settings.redis_consumer_group
-    consumer = _resolve_consumer_name(settings)
+    consumer = _resolve_consumer_name(settings, consumer_slot=consumer_slot)
 
     logger.info(
         "consumer starting",
-        extra={"stream": stream_key, "group": group, "consumer": consumer},
+        extra={"stream": stream_key, "group": group, "consumer": consumer, "slot": consumer_slot},
     )
 
     # 시작 시 group 보장. 실패하면 워커는 진행 불가 → 상위로 raise.

@@ -73,6 +73,10 @@ AI_CALLBACK_SECRET
 `AI_WORKER_IMAGE` can stay as the sample value before the first workflow deploy. The rollout
 script rewrites it to the pushed image tag every time.
 
+`WORKER_CONCURRENCY=2` is the initial VM setting for `e2-medium`. Keep it at `1` if CPU
+or memory stays saturated during analysis, and raise it only after checking Redis backlog,
+callback latency, and VM resource metrics.
+
 Do not commit `.env.vm`. It must live only on the VM.
 
 ## GitHub Variables

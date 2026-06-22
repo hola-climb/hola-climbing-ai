@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # --- Worker ---
     worker_host: str = "0.0.0.0"
     worker_port: int = 8000
+    worker_concurrency: int = Field(default=1, ge=1, le=8)
     log_level: str = "INFO"
     model_version: str = "rule_v3"
 

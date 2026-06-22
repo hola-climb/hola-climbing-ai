@@ -170,6 +170,7 @@ curl http://localhost:8000/health/ready  # readiness (Redis/GCS)
 |------|--------|------|------|
 | `WORKER_HOST` | `0.0.0.0` | no | FastAPI bind host |
 | `WORKER_PORT` | `8000` | no | FastAPI bind port |
+| `WORKER_CONCURRENCY` | `1` | no | 동시에 실행할 Redis Streams consumer 수. `e2-medium` 운영 VM은 `2`부터 측정 권장 |
 | `LOG_LEVEL` | `INFO` | no | `DEBUG`/`INFO`/`WARNING`/`ERROR` |
 | `MODEL_VERSION` | `rule_v3` | no | 콜백 body `model_version` 값. MVP는 규칙 기반 |
 
@@ -183,7 +184,7 @@ curl http://localhost:8000/health/ready  # readiness (Redis/GCS)
 | `REDIS_DB` | `0` | no | Redis DB 인덱스 |
 | `REDIS_STREAM_KEY` | `analysis:requests` | no | **Spring 확정값 — 변경 금지** |
 | `REDIS_CONSUMER_GROUP` | `hola-ai-worker` | no | 워커 측 정의. Spring 무관 |
-| `REDIS_CONSUMER_NAME` | `worker-1` | no | 기본값일 때 hostname+pid로 자동 고유화 |
+| `REDIS_CONSUMER_NAME` | `worker-1` | no | 기본값일 때 hostname+pid로 자동 고유화. 병렬 실행 시 slot suffix 추가 |
 | `REDIS_PROGRESS_CHANNEL` | `analysis:progress` | no | **Spring 확정값 — 변경 금지** |
 | `REDIS_BLOCK_MS` | `5000` | no | `XREADGROUP BLOCK` ms |
 | `REDIS_DLQ_KEY` | `analysis:requests:dlq` | no | Dead-letter 스트림 키 |
