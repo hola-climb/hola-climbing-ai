@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     redis_progress_channel: str = "analysis:progress"
     redis_block_ms: int = 5000
     redis_dlq_key: str = "analysis:requests:dlq"
-    redis_pending_min_idle_ms: int = Field(default=60000, ge=1000)
+    redis_pending_min_idle_ms: int = Field(default=600000, ge=1000)
 
     # --- GCS ---
     gcs_bucket: str = "hola-climbing-log-videos"

@@ -188,7 +188,7 @@ curl http://localhost:8000/health/ready  # readiness (Redis/GCS)
 | `REDIS_PROGRESS_CHANNEL` | `analysis:progress` | no | **Spring 확정값 — 변경 금지** |
 | `REDIS_BLOCK_MS` | `5000` | no | `XREADGROUP BLOCK` ms |
 | `REDIS_DLQ_KEY` | `analysis:requests:dlq` | no | Dead-letter 스트림 키 |
-| `REDIS_PENDING_MIN_IDLE_MS` | `60000` | no | 이 시간 이상 idle인 PEL 메시지를 `XAUTOCLAIM`으로 회수 |
+| `REDIS_PENDING_MIN_IDLE_MS` | `600000` | no | 새 메시지가 없을 때 이 시간 이상 idle인 PEL 메시지를 `XAUTOCLAIM`으로 회수 |
 
 ### GCS
 
@@ -298,9 +298,9 @@ XGROUP CREATE analysis:requests hola-ai-worker $ MKSTREAM
 콜백 4xx, max retry 초과, 파싱 실패 등은 `analysis:requests:dlq` 스트림으로 이동
 후 `XACK`합니다 (PEL 누적 방지). DLQ 컨슈머는 별도 운영 도구가 처리합니다.
 
-워커는 새 메시지를 읽기 전에 `XAUTOCLAIM`으로 `REDIS_PENDING_MIN_IDLE_MS` 이상 idle인
-pending 메시지를 현재 consumer로 회수합니다. 처리 중 워커가 종료되어 ACK가 보류된 메시지는
-다음 루프/재시작 후 재처리 대상이 됩니다.
+워커는 새 메시지를 먼저 읽고, 새 메시지가 없을 때만 `XAUTOCLAIM`으로
+`REDIS_PENDING_MIN_IDLE_MS` 이상 idle인 pending 메시지를 현재 consumer로 회수합니다.
+처리 중 워커가 종료되어 ACK가 보류된 메시지는 다음 루프/재시작 후 재처리 대상이 됩니다.
 
 ---
 

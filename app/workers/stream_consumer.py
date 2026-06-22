@@ -152,26 +152,26 @@ async def run_consumer(settings: Settings, consumer_slot: int | None = None) -> 
     try:
         while True:
             try:
-                msgs = await xautoclaim_pending(
+                msgs = await xreadgroup(
                     stream_key=stream_key,
                     group=group,
                     consumer=consumer,
-                    min_idle_ms=settings.redis_pending_min_idle_ms,
+                    block_ms=settings.redis_block_ms,
                     count=1,
                 )
-                if msgs:
-                    logger.info(
-                        "claimed stale pending message",
-                        extra={"stream": stream_key, "group": group, "consumer": consumer},
-                    )
-                else:
-                    msgs = await xreadgroup(
+                if not msgs:
+                    msgs = await xautoclaim_pending(
                         stream_key=stream_key,
                         group=group,
                         consumer=consumer,
-                        block_ms=settings.redis_block_ms,
+                        min_idle_ms=settings.redis_pending_min_idle_ms,
                         count=1,
                     )
+                    if msgs:
+                        logger.info(
+                            "claimed stale pending message",
+                            extra={"stream": stream_key, "group": group, "consumer": consumer},
+                        )
             except ValidationError as ve:
                 # 메시지가 있었지만 파싱 실패 — msg_id를 못 얻음. 로그만 남기고 계속.
                 # (XREADGROUP는 이미 메시지를 PEL에 등록했으므로 다음 루프에서는 다른 메시지가 옴)
